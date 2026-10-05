@@ -1,0 +1,22 @@
+# Release packages
+release/
+
+# Promotional assets & Nexus materials
+Nexus_Assets/
+
+# Internal project documentation & notes (local dev)
+ROADMAP.md
+LESSONS_LEARNED.md
+PLAN_GAMEPAD_EVENTBRIDGE.md
+
+# E2E in-engine test runners (local ue4ss-bridge MCP dependency)
+RunEngineTests.ps1
+RunEngineTests.bat
+
+# Dumps & binary assets
+Dawnwalker_AnimDump.txt
+
+# Temp & logs
+*.log
+*.tmp
+*.bak
