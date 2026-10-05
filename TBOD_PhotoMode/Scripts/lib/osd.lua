@@ -133,33 +133,50 @@ function M.osdValid(obj)
 end
 
 local function getGameInstance()
+    if State.cachedGI and M.osdValid(State.cachedGI) then return State.cachedGI end
+
     local ok, helpers = pcall(require, "UEHelpers.UEHelpers")
     if not ok or not helpers then
         ok, helpers = pcall(require, "UEHelpers")
     end
     if ok and helpers then
         local okGI, gi = pcall(helpers.GetGameInstance)
-        if okGI and M.osdValid(gi) then return gi end
+        if okGI and M.osdValid(gi) then
+            State.cachedGI = gi
+            return gi
+        end
     end
     local gi = FindFirstOf("GameInstance")
-    if M.osdValid(gi) then return gi end
+    if M.osdValid(gi) then
+        State.cachedGI = gi
+        return gi
+    end
     local pc = Subsystem.playerController()
     if M.osdValid(pc) then
         local okPI, pi = pcall(function() return pc.Player end)
         if okPI and M.osdValid(pi) then
             local okGI2, gi2 = pcall(function() return pi.GameInstance end)
-            if okGI2 and M.osdValid(gi2) then return gi2 end
+            if okGI2 and M.osdValid(gi2) then
+                State.cachedGI = gi2
+                return gi2
+            end
         end
     end
     return nil
 end
 
 local function osdConstruct(classPath, outer, name)
-    local class = StaticFindObject(classPath)
+    local class = State.osdClasses[classPath]
     if not M.osdValid(class) then
-        logMsg("OSD: class not found: %s", classPath)
-        return nil
+        class = StaticFindObject(classPath)
+        if M.osdValid(class) then
+            State.osdClasses[classPath] = class
+        else
+            logMsg("OSD: class not found: %s", classPath)
+            return nil
+        end
     end
+
     local objName = (type(FName) == "function" and FName(name)) or name
     local ok, obj = pcall(StaticConstructObject, class, outer, objName)
     if not ok or not M.osdValid(obj) then
@@ -390,7 +407,15 @@ local function getViewportSize()
         ok, w, h = pcall(function() return pc:GetViewportSize(0, 0) end)
         if ok and w and h and w > 0 and h > 0 then return w, h end
     end
-    local gvc = FindFirstOf("GameViewportClient")
+
+    if not State.cachedGVC or not M.osdValid(State.cachedGVC) then
+        local gvc = FindFirstOf("GameViewportClient")
+        if M.osdValid(gvc) then
+            State.cachedGVC = gvc
+        end
+    end
+
+    local gvc = State.cachedGVC
     if M.osdValid(gvc) then
         local ok, sz = pcall(function() return gvc:GetViewportSize() end)
         if ok and sz and sz.X and sz.X > 0 then return sz.X, sz.Y end

@@ -40,6 +40,16 @@ M.State = {
     origDeceleration = nil,
     origTurnRate = nil,
     origLookUpRate = nil,
+    -- Caching for performance
+    classToValidName = {},
+    staticObjectCache = {},
+    osdClasses = {},
+    cachedGI = nil,
+    cachedGVC = nil,
+    cachedUserWidgets = nil,
+    cachedToggleableContainers = nil,
+    cachedBlankButtons = nil,
+    cachedSequencePlayers = nil,
     -- Optics (Sprint 1.4.0) — SkyCreator-driven
     timeOfDay = 12.0,
     skyCreator = nil,
@@ -324,23 +334,52 @@ function M.cutsceneBlocked(label)
 end
 
 function M.findValid(classNames)
+    -- Fast path: if we previously found which class name works, try it first.
+    local classKey = table.concat(classNames, ",")
+    local cachedName = M.State.classToValidName[classKey]
+    if cachedName then
+        local obj = FindFirstOf(cachedName)
+        if M.isValidInstance(obj) then return obj end
+
+        local list = nil
+        pcall(function() list = FindAllOf(cachedName) end)
+        if list and #list > 0 then
+            for _, o in ipairs(list) do
+                if M.isValidInstance(o) then return o end
+            end
+        end
+    end
+
     for _, name in ipairs(classNames) do
         local list = nil
         pcall(function() list = FindAllOf(name) end)
         if list and #list > 0 then
             for _, obj in ipairs(list) do
-                if M.isValidInstance(obj) then return obj end
+                if M.isValidInstance(obj) then
+                    M.State.classToValidName[classKey] = name
+                    return obj
+                end
             end
         end
         local obj = FindFirstOf(name)
-        if M.isValidInstance(obj) then return obj end
+        if M.isValidInstance(obj) then
+            M.State.classToValidName[classKey] = name
+            return obj
+        end
     end
     return nil
 end
 
 function M.findStatic(path)
+    if M.State.staticObjectCache[path] and M.isValidObject(M.State.staticObjectCache[path]) then
+        return M.State.staticObjectCache[path]
+    end
     local obj = StaticFindObject(path)
-    return M.isValidObject(obj) and obj or nil
+    if M.isValidObject(obj) then
+        M.State.staticObjectCache[path] = obj
+        return obj
+    end
+    return nil
 end
 
 M.Subsystem = {
@@ -564,6 +603,22 @@ function M.delayGameThread(ms, fn)
         end)
     end)
     return ok
+end
+
+function M.clearCaches()
+    M.State.cachedPM = nil
+    M.State.cachedPhotoCamera = nil
+    M.State.cachedPC = nil
+    M.State.suppressedContexts = nil
+    M.State.classToValidName = {}
+    M.State.staticObjectCache = {}
+    M.State.osdClasses = {}
+    M.State.cachedGI = nil
+    M.State.cachedGVC = nil
+    M.State.cachedUserWidgets = nil
+    M.State.cachedToggleableContainers = nil
+    M.State.cachedBlankButtons = nil
+    M.State.cachedSequencePlayers = nil
 end
 
 return M
