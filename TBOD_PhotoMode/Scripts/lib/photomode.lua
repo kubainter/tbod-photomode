@@ -125,10 +125,14 @@ function M.setHUDVisible(visible)
         end
         logMsg("  Restored %d widgets", restored)
     else
-        local okWidgets, widgets = pcall(function() return FindAllOf("UserWidget") end)
-        if okWidgets and widgets then
+        if not State.cachedUserWidgets then
+            local okWidgets, widgets = pcall(function() return FindAllOf("UserWidget") end)
+            State.cachedUserWidgets = (okWidgets and widgets) and widgets or {}
+        end
+
+        if State.cachedUserWidgets then
             local hidden = 0
-            for _, w in ipairs(widgets) do
+            for _, w in ipairs(State.cachedUserWidgets) do
                 if w and w:IsValid() then
                     local fullName = ""
                     pcall(function() fullName = w:GetFullName() end)
@@ -185,31 +189,40 @@ end
 function M.pauseLevelSequences()
     if #State.pausedSequences > 0 then M.resumeLevelSequences() end
     local seen = {}
-    for _, cls in ipairs(SEQUENCE_PLAYER_CLASSES) do
-        local ok, players = pcall(function() return FindAllOf(cls) end)
-        if ok and players then
-            for _, pl in ipairs(players) do
-                local identity = ""
-                if isValidObject(pl) then pcall(function() identity = pl:GetFullName() end) end
-                if isValidObject(pl) and not isSequenceCDO(pl)
-                    and (identity == "" or not seen[identity]) then
-                    if identity ~= "" then seen[identity] = true end
-                    local playing = false
-                    pcall(function() playing = pl:IsPlaying() == true end)
-                    if playing then
-                        local okPause = pcall(function() pl:Pause() end)
-                        if okPause then
-                            local seqName = "?"
-                            pcall(function() seqName = pl:GetSequenceName(false) end)
-                            logMsg("  Cutscene paused: %s [%s]", cls, tostring(seqName))
-                            table.insert(State.pausedSequences,
-                                { player = pl, world = getObjectWorld(pl), worldIdentity = getObjectWorldIdentity(pl) })
-                        end
-                    end
+
+    if not State.cachedSequencePlayers then
+        State.cachedSequencePlayers = {}
+        for _, cls in ipairs(SEQUENCE_PLAYER_CLASSES) do
+            local ok, players = pcall(function() return FindAllOf(cls) end)
+            if ok and players then
+                for _, pl in ipairs(players) do
+                    table.insert(State.cachedSequencePlayers, pl)
                 end
             end
         end
     end
+
+    for _, pl in ipairs(State.cachedSequencePlayers) do
+        local identity = ""
+        if isValidObject(pl) then pcall(function() identity = pl:GetFullName() end) end
+        if isValidObject(pl) and not isSequenceCDO(pl)
+            and (identity == "" or not seen[identity]) then
+            if identity ~= "" then seen[identity] = true end
+            local playing = false
+            pcall(function() playing = pl:IsPlaying() == true end)
+            if playing then
+                local okPause = pcall(function() pl:Pause() end)
+                if okPause then
+                    local seqName = "?"
+                    pcall(function() seqName = pl:GetSequenceName(false) end)
+                    logMsg("  Cutscene paused: class [%s]", tostring(seqName))
+                    table.insert(State.pausedSequences,
+                        { player = pl, world = getObjectWorld(pl), worldIdentity = getObjectWorldIdentity(pl) })
+                end
+            end
+        end
+    end
+
     return #State.pausedSequences
 end
 
@@ -286,6 +299,7 @@ end
 
 function M.enterPhotoMode()
     if State.photoModeActive then return end
+    core.clearCaches()
     core.reloadConfig()
 
     if #State.pausedSequences > 0 then M.resumeLevelSequences() end
@@ -892,6 +906,7 @@ end
 
 function M.exitPhotoMode()
     if not State.photoModeActive then return end
+    core.clearCaches()
     local wasCutscenePM = State.pmMode == "cutscene" or State.cutscenePMEntry == true
     State.stepEpoch = (State.stepEpoch or 0) + 1
     State.cutsceneFreezePending = false

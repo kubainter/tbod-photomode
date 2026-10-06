@@ -125,20 +125,22 @@ local function setQuickslotContainerActive(enable)
         end
 
         -- Failsafe: guarantee all Quickslot-related UserWidgets are un-collapsed
-        local okWidgets, widgets = pcall(function() return FindAllOf("UserWidget") end)
-        if okWidgets and widgets then
-            for _, w in ipairs(widgets) do
-                if w and w:IsValid() then
-                    local fullName = ""
-                    pcall(function() fullName = w:GetFullName() end)
-                    if fullName:find("Quickslot", 1, true) then
-                        pcall(function()
-                            if w.Visibility == 2 then
-                                w:SetVisibility(0)
-                            end
-                            w:SetIsEnabled(true)
-                        end)
-                    end
+        if not State.cachedUserWidgets then
+            local okWidgets, widgets = pcall(function() return FindAllOf("UserWidget") end)
+            State.cachedUserWidgets = (okWidgets and widgets) and widgets or {}
+        end
+
+        for _, w in ipairs(State.cachedUserWidgets) do
+            if w and w:IsValid() then
+                local fullName = ""
+                pcall(function() fullName = w:GetFullName() end)
+                if fullName:find("Quickslot", 1, true) then
+                    pcall(function()
+                        if w.Visibility == 2 then
+                            w:SetVisibility(0)
+                        end
+                        w:SetIsEnabled(true)
+                    end)
                 end
             end
         end
@@ -175,34 +177,40 @@ local function setQuickslotContainerActive(enable)
         end
     end
 
+    -- Optimization: Cache the lists if not already cached.
+    -- These UI elements rarely respawn during a single Photo Mode session.
+    if not State.cachedToggleableContainers then
+        local okAll, list = pcall(function() return FindAllOf("NamedToggleableContainer") end)
+        State.cachedToggleableContainers = (okAll and list) and list or {}
+    end
+
     -- 2. Fallback: world search for NamedToggleableContainer
-    local okAll, list = pcall(function() return FindAllOf("NamedToggleableContainer") end)
-    if okAll and list then
-        for _, c in ipairs(list) do
-            if c and c:IsValid() then
-                local name = ""
-                pcall(function() name = c:GetFullName() end)
-                if name:find("QuickslotContainer") then
-                    local already = false
-                    for _, existing in ipairs(containers) do
-                        if existing == c then already = true break end
-                    end
-                    if not already then table.insert(containers, c) end
+    for _, c in ipairs(State.cachedToggleableContainers) do
+        if c and c:IsValid() then
+            local name = ""
+            pcall(function() name = c:GetFullName() end)
+            if name:find("QuickslotContainer") then
+                local already = false
+                for _, existing in ipairs(containers) do
+                    if existing == c then already = true break end
                 end
+                if not already then table.insert(containers, c) end
             end
         end
     end
 
+    if not State.cachedBlankButtons then
+        local okBtns, btnList = pcall(function() return FindAllOf("UDWW_Button_Blank_C") end)
+        State.cachedBlankButtons = (okBtns and btnList) and btnList or {}
+    end
+
     -- 3. Also grab any button widgets matching Quickslot
-    local okBtns, btnList = pcall(function() return FindAllOf("UDWW_Button_Blank_C") end)
-    if okBtns and btnList then
-        for _, btn in ipairs(btnList) do
-            if btn and btn:IsValid() then
-                local bName = ""
-                pcall(function() bName = btn:GetFullName() end)
-                if bName:find("Quickslot") then
-                    table.insert(containers, btn)
-                end
+    for _, btn in ipairs(State.cachedBlankButtons) do
+        if btn and btn:IsValid() then
+            local bName = ""
+            pcall(function() bName = btn:GetFullName() end)
+            if bName:find("Quickslot") then
+                table.insert(containers, btn)
             end
         end
     end
