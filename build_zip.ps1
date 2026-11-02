@@ -1,6 +1,12 @@
 param(
-    [string]$Version = "1.6.2"
+    [string]$Version = ""
 )
+
+if (-not $Version) {
+    $coreLua = Get-Content (Join-Path $PSScriptRoot 'TBOD_PhotoMode\Scripts\lib\core.lua') -Raw
+    if ($coreLua -match 'M\.VERSION\s*=\s*"([^"]+)"') { $Version = $Matches[1] } else { throw "Cannot derive version from core.lua (M.VERSION); pass -Version explicitly." }
+    Write-Host "Version auto-derived from core.lua: $Version"
+}
 
 $ErrorActionPreference = 'Stop'
 $projectDir = $PSScriptRoot
