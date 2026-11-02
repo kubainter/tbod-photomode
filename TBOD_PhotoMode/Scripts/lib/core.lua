@@ -1,7 +1,7 @@
 local M = {}
 local M = {}
 
-M.VERSION = "1.6.2"
+M.VERSION = "1.6.3"
 
 M.State = {
     photoModeActive = false,
@@ -273,6 +273,9 @@ if M.loadConfig(configPath) then
 else
     M.logMsg("Config file not found, using defaults")
 end
+-- TBOD_PMFov mirror guards [10,160] on the embedded FMinimalViewInfo; above 160
+-- the DLL skips writes, so the slider must not offer a dead range.
+if M.Config.fov_max > 160.0 then M.Config.fov_max = 160.0 end
 M.State.fov = M.Config.fov_default
 M.State.cloneDist = M.Config.clone_distance or M.State.cloneDist
 M.State.cloneSide = M.Config.clone_side or M.State.cloneSide

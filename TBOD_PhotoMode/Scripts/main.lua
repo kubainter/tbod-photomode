@@ -1,4 +1,4 @@
--- TBOD_PhotoMode v1.6.2 (UE5.5.4) — subsystem discovery inspired by DWFreeCam by Rabbit (MIT)
+-- TBOD_PhotoMode v1.6.3 (UE5.5.4) — subsystem discovery inspired by DWFreeCam by Rabbit (MIT)
 
 
 local function resolveModScriptsPath()
