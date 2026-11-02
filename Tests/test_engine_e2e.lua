@@ -34,13 +34,14 @@ local function run()
         end)
 
         T.it("should safely abort in offline mock environment without player pawn", function()
-            -- In mock environment without an active player pawn, runE2E must safely abort
-            local report = e2e.runE2E()
-            T.assert_true(report ~= nil, "report should not be nil")
-            T.assert_equal("ABORTED", report.status, "status should be ABORTED when no pawn/PC is active")
-            T.assert_true(report.aborted == true, "aborted flag should be true")
-            T.assert_true(type(report.error) == "string", "error string should be provided")
-            T.assert_equal(0, report.summary.total, "total scenarios should be 0 on abort")
+            -- In mock environment without an active player pawn, runE2E must safely abort.
+            -- Async contract: runE2E returns an ack { status = "ABORTED", report = {...} }.
+            local ack = e2e.runE2E()
+            T.assert_true(ack ~= nil, "ack should not be nil")
+            T.assert_equal("ABORTED", ack.status, "status should be ABORTED when no pawn/PC is active")
+            T.assert_true(ack.report and ack.report.aborted == true, "report.aborted flag should be true")
+            T.assert_true(type(ack.report.error) == "string", "error string should be provided")
+            T.assert_equal(0, ack.report.summary.total_scenarios, "total_scenarios should be 0 on abort")
         end)
 
     end)

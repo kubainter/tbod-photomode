@@ -1,16 +1,17 @@
-TBOD Photo Mode - UE4SS (TBOD_PhotoMode) 1.6.2
+TBOD Photo Mode - UE4SS (TBOD_PhotoMode) 1.6.3
 Photo Mode & FreeCam Suite for The Blood of Dawnwalker
 
 Unlocks and enhances the game's built-in Photo Mode camera subsystem with an on-screen display (OSD) settings menu, free camera movement, world freeze, FOV zoom, clean HUD toggle, camera roll, cinematic slow motion, player visibility toggle, and borderless screenshot capture.
+New in 1.6.3: FOV slider restored on game Patch 3 (bundled native dlls/main.dll mirrors FOV into the photo camera's embedded view info - keep every file from the archive), plus a fix for Photo Mode force-closing on re-entry after a paused session.
 New in 1.6.2: Camera speed stabilization during FOV/DoF modulation (TIK-013), interior candle/room lighting preservation when repositioning the player model (TIK-014), and contextual displacement reset on movement rows via R / Reset button.
 New in 1.6.1: Hotfix for Keyboard & Mouse players - eliminates inadvertent Photo Mode triggers caused by sprinting (Shift) and target lock (MMB/Tab) sharing Enhanced Input actions with controller chords. Gamepad stick clicks are now detected strictly via direct hardware polling.
-New in 1.6.0: Full Native Gamepad Support (triple-tap L3 activation, D-Pad navigation with auto-repeat & quickslot suppression, LB/RB tab switching, A/B/X/Y actions, L3/R3 shortcuts, dynamic gamepad-aware OSD legend, camera roll fixes) + opt-in Cutscene Photo Mode (force_cutscene_pm pauses & resumes all sequence types seamlessly).
+New in 1.6.0: Full Native Gamepad Support (triple-tap L3 activation, D-Pad navigation with auto-repeat & quickslot suppression, LB/RB tab switching, A/B/X/Y actions, L3/R3 shortcuts, dynamic gamepad-aware OSD legend, camera roll fixes) + Cutscene Photo Mode (force_cutscene_pm pauses & resumes all sequence types seamlessly - on by default since 1.6.3).
 
 
 REQUIREMENTS
 
   Mandatory:
-    * The Blood of Dawnwalker (UE 5.5.4, Patch 1 or Patch 2)
+    * The Blood of Dawnwalker (UE 5.5.4, Patch 1, Patch 2 or Patch 3)
     * RE-UE4SS for The Blood of Dawnwalker v1.2.1-rc6 or newer (UE4SS v3.0.1)
       https://www.nexusmods.com/thebloodofdawnwalker/mods/18
     * UE4SS Lua Event Bridge v1.0.7 or newer (Required for Enhanced Input & Gamepad support)
@@ -44,9 +45,13 @@ INSTALLATION
     4. The resulting structure must be:
        ue4ss\Mods\TBOD_PhotoMode\enabled.txt
        ue4ss\Mods\TBOD_PhotoMode\README.txt
+       ue4ss\Mods\TBOD_PhotoMode\mod_settings.ini
+       ue4ss\Mods\TBOD_PhotoMode\dlls\main.dll
        ue4ss\Mods\TBOD_PhotoMode\Scripts\main.lua
        ue4ss\Mods\TBOD_PhotoMode\Scripts\lib\*.lua
        ue4ss\Mods\TBOD_PhotoMode\Scripts\config\photo_mode.ini
+       (dlls\main.dll is the bundled TBOD_PMFov native mirror - required
+        for the live FOV slider on game Patch 3+)
     5. Launch the game and press F8 (or Triple-Tap L3 / L3+R3 on gamepad).
 
 
@@ -60,12 +65,14 @@ CONTROLS (default - customizable, see CONFIGURATION below)
 
   In-Game Menu (OSD):
     F1                      Toggle OSD Menu (Hide / Show)
-    PageUp / PageDown       Switch OSD tab (CAMERA / DIRECTING / STAGE)
+    PageUp / PageDown       Switch OSD tab
+                            (CAMERA / ENVIRONMENT / DIRECTING / STAGE)
     Up / Down               Select parameter on the active tab:
-                            CAMERA: FOV, Roll, Slow Motion, Player, HUD,
-                                    Time of Day, Auto-Focus, Aspect Ratio,
-                                    Weather
-                            DIRECTING: Target, Pose, Frame Step, ...
+                            CAMERA: FOV, Roll, Auto-Focus, Exposure,
+                                    Aspect Ratio, Framing
+                            ENVIRONMENT: Time of Day, Weather
+                            DIRECTING: Target, Pose, Frame Step,
+                                    Slow Motion, Player, HUD
                             STAGE: Target, Pose, Spawn Class, Spawn NPC,
                                     Move Fwd/Side/Height, Rotate, Face Cam
                                     (Move/Rotate/Face Cam also work on
@@ -85,14 +92,17 @@ CONTROLS (default - customizable, see CONFIGURATION below)
     Right Stick             Rotate camera & look around (Pitch / Yaw)
     D-Pad Up / Down         Select parameter in active OSD tab
     D-Pad Left / Right      Adjust selected parameter (with auto-repeat & quickslot suppression)
-    LB / RB                 Previous / Next OSD tab (CAMERA / DIRECTING / STAGE)
+    LB / RB                 Previous / Next OSD tab (CAMERA / ENVIRONMENT / DIRECTING / STAGE)
     A / Cross               Confirm action / Toggle Pause / Freeze world time
     Square / X              Clean View (Hide/Show Menu & HUD for framing)
     B / Circle              Take screenshot (auto-hides OSD, saves to Pictures\Dawnwalker)
     Y / Triangle            Reset all settings to defaults (safe level horizon)
     L3 (Single Click)       Quick reset FOV to default (90 deg)
+    R3 (Single Click)       Take screenshot (same as P / B)
     Menu / Start            Exit Photo Mode (clean full restoration)
-    L3 (Triple-Tap)         Toggle Photo Mode (Enter / Exit)
+    L3+R3 (Chord)           Toggle Photo Mode (Enter / Exit)
+                            (Triple-Tap L3 enters only; inside Photo Mode
+                            a single L3 click resets FOV)
 
 
 CONFIGURATION
@@ -108,14 +118,14 @@ CONFIGURATION
   Available settings:
     osd_show_on_enter   - Open OSD menu automatically on Photo Mode entry (1/0)
     osd_toggle_key      - Key to toggle the OSD menu
-                        (default: F1, Gamepad_Special_Left)
+                        (default: F1, Gamepad_FaceButton_Left)
     osd_reset_key       - Key to reset all settings to defaults (default: R)
     pause_key           - Freeze/unfreeze world time
                         (default: F2, Gamepad_FaceButton_Bottom)
     pause_on_enter      - Freeze world time automatically on PM entry (1=default on / 0)
     force_cutscene_pm   - Allow PM during cutscenes/dialogues: pauses the playing
                           sequence (picture, sound, camera cuts), resumes it on
-                          exit (default: 0 = off)
+                          exit (default: 1 = on since 1.6.3)
     Camera parameters   - fov_default, fov_min, fov_max, fov_step, vertical_speed,
                           camera_max_distance, camera_speed, slomo_step, slomo_min,
                           slomo_max, roll_step, roll_max
@@ -130,7 +140,7 @@ FEATURES
   * Camera Roll / Tilt (-90 to +90 deg) for portrait and Dutch-angle shots
   * Cinematic Slow Motion (down to 0.02x) and world freeze with smooth camera
   * Hide Player Character toggle for landscape and scenery shots
-  * Wide FOV range (10 - 170 deg)
+  * Wide FOV range (10 - 160 deg)
   * Dedicated screenshot capture (auto-hides OSD during capture)
   * Clean HUD toggle (hides game UI)
   * Time of Day control via SkyCreator (restored on exit)
@@ -149,7 +159,7 @@ FEATURES
   * Gamepad support: native photo-camera flight plus pad shortcuts for freeze,
     screenshot, vertical camera and OSD navigation
   * Freeze-on-entry like built-in photo modes (on by default, pause_on_enter=0 disables)
-  * Photo Mode in cutscenes/dialogues (opt-in, force_cutscene_pm): the playing
+  * Photo Mode in cutscenes/dialogues (force_cutscene_pm, on by default): the playing
     sequence is paused - picture, sound and camera cuts - and resumed exactly
     where it stopped when Photo Mode exits
   * Input Isolation + Auto-Exit Watchdog (clean exit when the game opens menus)
@@ -158,11 +168,21 @@ FEATURES
 
 COMPATIBILITY
 
-  Tested on game build:
-  Dawnwalker-5.5.4-256914+dw1-pc-256914-shipping-patch2-all-97b7e501
+  Tested on game builds:
+  Dawnwalker-5.5.4-256914+dw1-pc-256914-shipping-patch2-all-97b7e501 (Patch 2)
+  Dawnwalker-5.5.4 CL 265636 (Patch 3)
 
 
 CHANGELOG
+
+  v1.6.3
+    * Fixed: FOV Slider Broken After Game Patch 3 - Field of View adjustment
+      works again on game patch 3 (CL 265636). The release now bundles a native
+      dlls/main.dll (TBOD_PMFov) that mirrors the camera manager FOV into the
+      photo camera's embedded FMinimalViewInfo, restoring live FOV control
+      without replacing the native photo camera.
+    * Fixed: Photo Mode Force-Close on Re-entry - Photo Mode no longer
+      force-exits when re-entered shortly after leaving a paused session.
 
   v1.6.2
     * Fixed: Camera Speed Spikes on FOV & DoF Adjustments - eliminated sudden

@@ -1,12 +1,6 @@
--- TBOD_PhotoMode v1.6.2
--- Photo Mode mod for The Blood of Dawnwalker (UE5.5.4)
--- Subsystem discovery inspired by DWFreeCam by Rabbit (MIT)
--- Modular architecture (Sprint 1.3.0) + input isolation (Sprint 1.4.0)
--- + NPC posing/props/directing (Sprint 1.5.0) + player move/weapon/leak fixes (1.5.5)
+-- TBOD_PhotoMode v1.6.3 (UE5.5.4) — subsystem discovery inspired by DWFreeCam by Rabbit (MIT)
 
----------------------------------------------------------------------------- Module loading
 
--- Resolve mod scripts path for require
 local function resolveModScriptsPath()
     local candidates = {
         "ue4ss/Mods/TBOD_PhotoMode/Scripts",
@@ -85,7 +79,7 @@ local function dispatchBound(fn, isGamepad)
     pcall(function() osd.updateOSD() end)
 end
 
----------------------------------------------------------------------------- Key bindings
+-- Key bindings
 
 keybinds.bindWithFallback(keybinds.keyList(Config.toggle_key), nil, function(isPad)
     State.lastInputDevice = isPad and "gamepad" or "keyboard"
@@ -148,7 +142,6 @@ keybinds.bindWithFallback(keybinds.keyList(Config.osd_tab_next_key), nil, functi
     if State.photoModeActive then dispatchBound(function() osd.osdTab(1) end, false) end
 end, "OSD Tab Next")
 
----------------------------------------------------------------------------- Startup logs
 
 -- Fail-safe: if a previous mod session crashed/exited while input isolation was
 -- active, the player pawn may have been left with input disabled (softlock).
@@ -238,4 +231,3 @@ if okSmoke and smoke and smoke.runSmokeTests then
         dispatch(smoke.runSmokeTests)
     end, "Smoke Tests")
 end
-

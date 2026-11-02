@@ -1,14 +1,5 @@
--- TBOD_PhotoMode Gamepad Controller Module
--- Handles controller polling via APlayerController reflection (WasInputKeyJustPressed / IsInputKeyDown / GetInputAnalogKeyState).
--- Provides:
---   1. D-Pad navigation with auto-repeat for OSD (Up/Down/Left/Right)
---   2. Shoulder buttons for Tab switching (LB/RB)
---   3. Face buttons: A (Action/Pause), B (Back/Close OSD/Exit PM), X (Screenshot), Y (Reset OSD)
---   4. Triggers: LT (Move Down), RT (Move Up) with analog sensitivity
---   5. Special buttons: View/Select (Toggle OSD), Menu/Start (Exit PM)
---   6. Thumbstick clicks: L3 (Reset FOV), R3 (Toggle HUD)
---   7. L3 Triple-Tap (3x quick click): Enter Photo Mode from gameplay (immune to sprint conflicts)
---   8. L3 + R3 simultaneous chord: Redundant toggle path
+-- Gamepad poller: D-Pad OSD nav, triggers, face buttons, L3 triple-tap and
+-- the L3+R3 chord to enter PM from gameplay.
 
 local core = require("lib.core")
 local State = core.State
@@ -58,17 +49,6 @@ local function recordR3Hit(source)
 end
 
 local keyCache = {}
-local lastPCAddress = nil
-local kismet = nil
-
-local function checkPCRefresh(pc)
-    local addr = nil
-    pcall(function() addr = pc:GetAddress() end)
-    if addr and addr ~= lastPCAddress then
-        lastPCAddress = addr
-        -- Keep keyCache intact: FNames are engine-global and persist across PC refreshes.
-    end
-end
 
 local namesLib = nil
 local function getNamesLib()
@@ -127,7 +107,6 @@ local function getAnalog(pc, axisName)
     return (type(val) == "number") and val or 0.0
 end
 
--- Key repeat settings (in seconds)
 local REPEAT_DELAY = 0.35
 local REPEAT_INTERVAL = 0.10
 
@@ -195,7 +174,7 @@ function M.handleButtonPress(keyName, isRepeat)
             elseif label == "Player" then
                 photomode.togglePlayerVisibility()
             elseif label == "Auto-Focus" then
-                require("lib.optics").toggleAutoFocus()
+                require("lib.optics").triggerAutoFocus()
             elseif label == "Slow Motion" or label == "Frame Step" then
                 photomode.togglePause()
             elseif label == "Spawn NPC" or label == "Face Cam" then
@@ -235,7 +214,6 @@ function M.poll()
     -- not need a pawn at all. Pawn is only needed for camera flight (below).
     if not (pc and core.isRealPlayerController(pc)) then return end
 
-    checkPCRefresh(pc)
     local now = os.clock()
 
     -- 1. Check L3 + R3 candidate keys
@@ -260,7 +238,6 @@ function M.poll()
 
     -- 2. Detect L3 Triple-Tap in normal gameplay (immune to sprint hold / single taps)
     if not State.photoModeActive then
-        -- Press edge detection
         if l3RawDown and not l3WasDownPrev then
             l3WasDownPrev = true
             l3PressStartTime = now
@@ -287,7 +264,6 @@ function M.poll()
                 end
             end
         elseif not l3RawDown and l3WasDownPrev then
-            -- Release edge detection
             l3WasDownPrev = false
             local pressDuration = now - l3PressStartTime
             l3PressStartTime = 0
@@ -340,7 +316,6 @@ function M.poll()
         end
     end
 
-    -- If Photo Mode is NOT active, do not process Photo Mode navigation/actions
     if not State.photoModeActive then
         buttonState = {}
         return
@@ -418,11 +393,9 @@ function M.poll()
         local st = buttonState[keyName]
         if isDown then
             if not st then
-                -- Initial press
                 buttonState[keyName] = { isDown = true, nextRepeat = now + REPEAT_DELAY }
                 M.handleButtonPress(keyName, false)
             elseif REPEATABLE_KEYS[keyName] and now >= st.nextRepeat then
-                -- Repeat
                 st.nextRepeat = now + REPEAT_INTERVAL
                 M.handleButtonPress(keyName, true)
             end

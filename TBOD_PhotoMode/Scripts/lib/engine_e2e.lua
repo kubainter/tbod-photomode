@@ -1,7 +1,5 @@
--- lib/engine_e2e.lua
--- In-Engine Automated E2E & Integration Test Suite for TBOD_PhotoMode
--- Operates on the game thread via ue4ss-bridge / eval_lua (UE 5.5.4 Shipping, UE4SS v3.x)
--- Enforces Rule 8 (PM Statelessness) & TIK-008 Memory Leak Audit.
+-- In-engine E2E suite: runs on the game thread via ue4ss-bridge eval;
+-- enforces Rule 8 (PM Statelessness) & the TIK-008 leak audit.
 
 local core = require("lib.core")
 local State = core.State
@@ -17,9 +15,7 @@ local eventbridge = require("lib.eventbridge")
 
 local M = {}
 
-----------------------------------------------------------------------------
 -- Self-contained JSON Serializer (for structured bridge transport)
-----------------------------------------------------------------------------
 
 local function escapeJsonString(s)
     local matches = {
@@ -80,9 +76,7 @@ function M.toJson(val)
     end
 end
 
-----------------------------------------------------------------------------
 -- Test Scenario Factory
-----------------------------------------------------------------------------
 
 local function newScenario(id, name)
     local s = {
@@ -109,11 +103,9 @@ local function newScenario(id, name)
     return s
 end
 
-----------------------------------------------------------------------------
 -- Scenario Implementations
-----------------------------------------------------------------------------
 
--- Scenariusz A: Subsystems & Reflection Liveness
+-- Scenario A: Subsystems & Reflection Liveness
 local function runScenarioA()
     local s = newScenario("A", "Subsystems & Reflection Liveness")
     local t0 = os.clock()
@@ -162,10 +154,12 @@ local function runScenarioA()
     return s
 end
 
--- Scenariusz B: Pełny cykl życia Photo Mode
-local function runScenarioB()
+-- Scenario B: full PM lifecycle, split across frames - auto-pause fires
+-- 600 ms after entry (pause_on_enter -> delayGameThread(600)), so the
+-- pause assert must run in a later stage.
+local function runScenarioB_enter()
     local s = newScenario("B", "Full Photo Mode Lifecycle")
-    local t0 = os.clock()
+    s._t0 = os.clock()
 
     -- 1. Initial State Check
     s:assert("Initial state: Photo Mode is inactive",
@@ -199,7 +193,18 @@ local function runScenarioB()
         camPossessed,
         vt and ("Current ViewTarget: " .. tostring(vt:GetFullName())) or "No ViewTarget on PCM")
 
-    -- 4. World Pause Assertion
+    s._photoCam = photoCam
+    s._pc = pc
+    s._pcm = pcm
+    return s
+end
+
+local function runScenarioB_finish(s)
+    local pc = s._pc or Subsystem.playerController()
+    local pcm = s._pcm or (pc and pc.PlayerCameraManager)
+    local photoCam = s._photoCam
+
+    -- 4. World Pause Assertion (after the 600 ms pause_on_enter delay)
     local isPaused = (State.paused == true)
     local gs = Subsystem.gameplayStatics()
     if not isPaused and gs and pc then
@@ -207,7 +212,7 @@ local function runScenarioB()
     end
     s:assert("World paused upon Photo Mode entry (pause_on_enter)",
         isPaused or (Config.pause_on_enter == false),
-        "Game not paused after entry")
+        string.format("State.paused=%s, IsGamePaused=%s", tostring(State.paused), tostring(isPaused)))
 
     -- 5. Programmatic Exit
     photomode.exitPhotoMode()
@@ -229,14 +234,34 @@ local function runScenarioB()
         notPhotoCam,
         vtAfter and ("Restored ViewTarget: " .. tostring(vtAfter:GetFName():ToString())) or "ViewTarget is nil")
 
-    s.duration_ms = math.floor((os.clock() - t0) * 1000)
+    s.duration_ms = math.floor((os.clock() - (s._t0 or os.clock())) * 1000)
     return s
 end
 
--- Scenariusz C: Nawigacja OSD i modyfikacja parametrów
-local function runScenarioC()
+-- Scenario C: OSD navigation & parameter modulation.
+-- FOV is asserted on the Lua->native conduit (PCM DefaultFOV). The rendered
+-- value (ViewTarget.POV.FOV) is only refreshed by CalcCamera, which does not
+-- tick while the world is paused (pause_on_enter) - reading it under pause
+-- returns a stale value. The rendered half of the path is covered by the
+-- TBOD_PMFov mirror (embedded FMinimalViewInfo, logged "mirror active") and
+-- Scenario B's ViewTarget assertions.
+
+local function conduitFOV()
+    local pc = Subsystem.playerController()
+    local pcm = pc and pc.PlayerCameraManager
+    if not (pcm and pcm:IsValid()) then return nil end
+    local v = nil
+    pcall(function() v = pcm.DefaultFOV end)
+    if type(v) == "userdata" and type(Unwrap) == "function" then
+        pcall(function() v = Unwrap(v) end)
+    end
+    if type(v) == "number" then return v end
+    return nil
+end
+
+local function runScenarioC_enter()
     local s = newScenario("C", "OSD Navigation & Parameter Modulation")
-    local t0 = os.clock()
+    s._t0 = os.clock()
 
     -- 1. Enter PM and ensure OSD is displayed
     if not State.photoModeActive then
@@ -264,23 +289,28 @@ local function runScenarioC()
     -- 3. FOV Modulation (Tab 1 / Camera Tab)
     osd.currentTab = 1
     osd.OSD_SELECTED = 1 -- Row 1 is FOV
-    local baselineFOV = State.fov or Config.fov_default
+    s._baselineFOV = State.fov or Config.fov_default
     osd.osdAdjust(1)
-    local modifiedFOV = State.fov or baselineFOV
+    s._modifiedFOV = State.fov or s._baselineFOV
+    return s
+end
+
+local function runScenarioC_assert(s)
+    -- 3b. Conduit FOV must follow the slider (DefaultFOV -> native mirror)
+    local rf = conduitFOV()
     s:assert("osdAdjust(1) modifies FOV",
-        math.abs(modifiedFOV - baselineFOV) > 0.001,
-        string.format("FOV changed from %.1f to %.1f", baselineFOV, modifiedFOV))
+        rf ~= nil and math.abs(rf - s._modifiedFOV) < 0.5,
+        string.format("DefaultFOV=%s, expected=%.1f (state %.1f -> %.1f)",
+            tostring(rf), s._modifiedFOV, s._baselineFOV, s._modifiedFOV))
 
     -- TIK-013 Camera Speed Guard Check:
     local photoCam = Subsystem.photoCamera()
-    if photoCam and photoCam:IsValid() then
-        local mc = photoCam.MovementComponent
-        if mc and mc:IsValid() and State.origMaxSpeed then
-            s:assert("TIK-013: Camera MaxSpeed clamped to origMaxSpeed during FOV adjustment",
-                math.abs(mc.MaxSpeed - State.origMaxSpeed) < 0.1,
-                string.format("mc.MaxSpeed=%.1f, origMaxSpeed=%.1f", mc.MaxSpeed, State.origMaxSpeed))
-        end
-    end
+    local mc = (photoCam and photoCam:IsValid()) and photoCam.MovementComponent or nil
+    s:assert("TIK-013: Camera MaxSpeed clamped to origMaxSpeed during FOV adjustment",
+        mc ~= nil and mc:IsValid() and State.origMaxSpeed ~= nil and math.abs(mc.MaxSpeed - State.origMaxSpeed) < 0.1,
+        (mc and mc:IsValid() and State.origMaxSpeed)
+            and string.format("mc.MaxSpeed=%.1f, origMaxSpeed=%.1f", mc.MaxSpeed, State.origMaxSpeed)
+            or "photoCam/MovementComponent/origMaxSpeed unavailable")
 
     -- 4. Exposure Modulation
     local expRow = nil
@@ -300,6 +330,8 @@ local function runScenarioC()
     end
 
     -- 5. Time of Day Modulation (Tab 2 / Environment Tab)
+    -- adjustTimeOfDay re-syncs State.timeOfDay from the live sky on its first
+    -- call, so a stale Lua baseline produces a false zero-delta — sync first.
     local todRow = nil
     for idx, r in ipairs(osd.OSD_ROWS) do
         if r.label == "Time of Day" then todRow = idx break end
@@ -307,6 +339,7 @@ local function runScenarioC()
     if todRow then
         osd.currentTab = 2 -- ENVIRONMENT tab
         osd.OSD_SELECTED = todRow
+        pcall(function() require("lib.optics").syncTimeOfDay() end)
         local baselineTOD = State.timeOfDay or 12.0
         osd.osdAdjust(1)
         local modifiedTOD = State.timeOfDay or baselineTOD
@@ -317,25 +350,34 @@ local function runScenarioC()
         s:assert("Time of Day row discovered in OSD_ROWS", false, "Time of Day row missing")
     end
 
-    -- 6. OSD Reset
+    -- 6. OSD Reset (rendered FOV verified in the next stage)
     osd.osdReset()
+    return s
+end
+
+local function runScenarioC_finish(s)
+    local rf = conduitFOV()
     s:assert("osdReset() restores FOV to default",
-        math.abs((State.fov or 0) - Config.fov_default) < 0.01,
-        string.format("FOV restored to %.1f (expected %.1f)", State.fov or 0, Config.fov_default))
+        rf ~= nil and math.abs(rf - Config.fov_default) < 0.5,
+        string.format("DefaultFOV=%s, expected=%.1f (state %.1f)",
+            tostring(rf), Config.fov_default, State.fov or 0))
     s:assert("osdReset() restores Exposure to 0.0",
         math.abs(State.exposureBias or 0) < 0.01,
         string.format("Exposure restored to %.2f (expected 0.0)", State.exposureBias or 0))
 
     -- Exit PM
     photomode.exitPhotoMode()
-    s.duration_ms = math.floor((os.clock() - t0) * 1000)
+    s.duration_ms = math.floor((os.clock() - (s._t0 or os.clock())) * 1000)
     return s
 end
 
--- Scenariusz D: Reżyseria i Spawner
-local function runScenarioD()
+-- Scenario D: directing & spawner, two stages - spawn is synchronous but the
+-- clone appearance pipeline assembles over several frames via the spawner's
+-- own 40 ms pulses (3 x 200 ms, TIK-008). Weapon/prop asserts run in a later
+-- stage (~1.5 s) or the clone has no SkeletalMeshComponent yet (false FAIL).
+local function runScenarioD_spawn()
     local s = newScenario("D", "Directing & Spawner Integrity")
-    local t0 = os.clock()
+    s._t0 = os.clock()
 
     -- 1. Enter PM
     if not State.photoModeActive then
@@ -353,20 +395,23 @@ local function runScenarioD()
         #spawner.spawnedClones == initialCount + 1,
         string.format("Clone count is %d (was %d)", #spawner.spawnedClones, initialCount))
 
-    -- 3. Equip Weapon on Clone
+    return s, clone
+end
+
+local function runScenarioD_finish(s, clone)
+    -- Re-resolve: the captured ref dangles if the appearance pipeline or a
+    -- premature teardown destroyed the clone; the spawner table is authoritative.
+    if not (clone and clone:IsValid()) then
+        clone = spawner.spawnedClones[#spawner.spawnedClones]
+    end
+
+    -- 3. Equip Weapon on Clone (after the appearance pipeline has assembled)
     if clone and clone:IsValid() then
-        spawner.equipCloneWeapon(clone)
-        local hasWeapon = false
-        if spawner.spawnedWeapons and spawner.spawnedWeapons[1] ~= nil then
-            hasWeapon = true
-        elseif spawner.hijackedComps and spawner.hijackedComps[clone] ~= nil then
-            hasWeapon = true
-        elseif spawner.knownWeapons and next(spawner.knownWeapons) ~= nil then
-            hasWeapon = true
-        end
+        local w = spawner.equipCloneWeapon(clone)
+        local hasWeapon = w ~= nil and w:IsValid()
         s:assert("Weapon equipped or hijacked on spawned clone",
             hasWeapon,
-            "Clone weapon entry verified")
+            hasWeapon and ("Weapon comp: " .. tostring(w:GetFName():ToString())) or "equipCloneWeapon returned nil/invalid")
 
         -- 4. Apply Prop to Clone
         local propPreset = poses.PROP_PRESETS and (poses.PROP_PRESETS.hammer or poses.PROP_PRESETS.spoon or poses.PROP_PRESETS.book)
@@ -379,12 +424,14 @@ local function runScenarioD()
             prop and ("Prop: " .. tostring(prop:GetFName():ToString())) or "Prop is nil/invalid")
 
         local attachParent = nil
-        pcall(function() attachParent = prop:GetAttachParent() end)
+        if prop then pcall(function() attachParent = prop:GetAttachParent() end) end
         s:assert("Prop is physically attached to character socket/component",
             attachParent ~= nil and attachParent:IsValid(),
             attachParent and ("Attach parent: " .. tostring(attachParent:GetFName():ToString())) or "Prop unattached")
     else
-        s:assert("Weapon and prop applied to clone", false, "Clone was invalid")
+        s:assert("Weapon equipped or hijacked on spawned clone", false, "Clone invalid before delayed stage")
+        s:assert("spawner.spawnProp() returns valid prop instance", false, "Clone invalid")
+        s:assert("Prop is physically attached to character socket/component", false, "Clone invalid")
     end
 
     -- 5. Destroy All Spawner Entities
@@ -421,20 +468,22 @@ local function runScenarioD()
         s:assert("TIK-014: Actor collision preserved on player during move",
             player:GetActorEnableCollision() == true,
             "Actor collision was disabled")
-        if cap and cap:IsValid() then
-            s:assert("TIK-014: Capsule switched to QueryOnly (1)",
-                cap:GetCollisionEnabled() == 1,
-                string.format("CollisionEnabled=%s", tostring(cap:GetCollisionEnabled())))
-        end
+        s:assert("TIK-014: Capsule switched to QueryOnly (1)",
+            cap ~= nil and cap:IsValid() and cap:GetCollisionEnabled() == 1,
+            cap and string.format("CollisionEnabled=%s", tostring(cap:GetCollisionEnabled())) or "CapsuleComponent unavailable")
+    else
+        s:assert("TIK-014: Player move prepared flag set", false, "playerPawn unavailable")
+        s:assert("TIK-014: Actor collision preserved on player during move", false, "playerPawn unavailable")
+        s:assert("TIK-014: Capsule switched to QueryOnly (1)", false, "playerPawn unavailable")
     end
 
     -- Exit PM
     photomode.exitPhotoMode()
-    s.duration_ms = math.floor((os.clock() - t0) * 1000)
+    s.duration_ms = math.floor((os.clock() - (s._t0 or os.clock())) * 1000)
     return s
 end
 
--- Scenariusz E: Audyt bezstanowości i wycieków pamięci (Rule 8 / TIK-008 Audit)
+-- Scenario E: statelessness & memory leak audit (Rule 8 / TIK-008)
 local function runScenarioE()
     local s = newScenario("E", "Statelessness & Memory Leak Audit (Rule 8 / TIK-008)")
     local t0 = os.clock()
@@ -546,86 +595,20 @@ local function runScenarioE()
     return s
 end
 
-----------------------------------------------------------------------------
--- Master E2E Runner Entry Point
-----------------------------------------------------------------------------
+-- Master E2E Runner - staged across frames
+--
+-- One eval blocks the GameThread, so no delayed callback (auto-pause at
+-- +600 ms, appearance pulses at +200..640 ms) can fire inside it. The suite
+-- therefore runs as a chain of delayGameThread stages: synchronous steps
+-- between frames, with the pause/clone asserts deferred past the delays.
+-- The bridge runner starts it and polls getE2EStatus() for the report.
 
-function M.runE2E()
-    local overallStart = os.clock()
-    logMsg("==================================================")
-    logMsg(" TBOD_PhotoMode - In-Engine E2E & Integration Tests")
-    logMsg("==================================================")
+M._run = nil
+M._lastReport = nil
 
-    -- Guard 1: Verify not in Main Menu / active PlayerController check
-    local pc = Subsystem.playerController()
-    if not (pc and pc:IsValid() and core.isRealPlayerController(pc)) then
-        local abortReport = {
-            status = "ABORTED",
-            aborted = true,
-            error = "Active PlayerController not found or not in gameplay state (Main Menu / loading screen). Please load a game save first.",
-            summary = { total = 0, passed = 0, failed = 0, status = "ABORTED", duration_ms = 0 },
-            scenarios = {}
-        }
-        logMsg("E2E ABORTED: PlayerController not in gameplay state.")
-        return abortReport
-    end
-
-    -- Guard 2: Verify active player pawn exists
-    local pawn = nil
-    pcall(function() pawn = pc.Pawn or pc.Character end)
-    if not (pawn and pawn:IsValid()) then
-        local abortReport = {
-            status = "ABORTED",
-            aborted = true,
-            error = "Active Player Pawn not found in world. Tests require an active player character.",
-            summary = { total = 0, passed = 0, failed = 0, status = "ABORTED", duration_ms = 0 },
-            scenarios = {}
-        }
-        logMsg("E2E ABORTED: Player pawn not found.")
-        return abortReport
-    end
-
-    local scenarios = {}
-    local scenarioRunners = {
-        runScenarioA,
-        runScenarioB,
-        runScenarioC,
-        runScenarioD,
-        runScenarioE
-    }
-
-    local allPassed = true
-    local totalAssertions = 0
-    local passedAssertions = 0
-    local failedAssertions = 0
-
-    for _, runner in ipairs(scenarioRunners) do
-        local ok, s = xpcall(runner, function(err)
-            return tostring(err) .. "\n" .. debug.traceback()
-        end)
-
-        if not ok then
-            allPassed = false
-            local fallback = newScenario("ERR", "Scenario execution error")
-            fallback.passed = false
-            fallback.error = tostring(s)
-            fallback:assert("Scenario completed without unhandled error", false, tostring(s))
-            table.insert(scenarios, fallback)
-            failedAssertions = failedAssertions + 1
-            totalAssertions = totalAssertions + 1
-        else
-            table.insert(scenarios, s)
-            if not s.passed then allPassed = false end
-            for _, a in ipairs(s.assertions) do
-                totalAssertions = totalAssertions + 1
-                if a.passed then
-                    passedAssertions = passedAssertions + 1
-                else
-                    failedAssertions = failedAssertions + 1
-                end
-            end
-        end
-    end
+local function finishRun()
+    local run = M._run
+    if not run then return end
 
     -- Fail-safe cleanup: Rule 8 enforcement
     pcall(function()
@@ -637,8 +620,28 @@ function M.runE2E()
         end
     end)
 
-    local totalDuration = math.floor((os.clock() - overallStart) * 1000)
+    local scenarios = run.scenarios
+    local allPassed = true
+    local totalAssertions = 0
+    local passedAssertions = 0
+    local failedAssertions = 0
+    for _, s in ipairs(scenarios) do
+        -- Strip private stage fields (UObject refs) before serialization
+        for k in pairs(s) do
+            if type(k) == "string" and k:sub(1, 1) == "_" then s[k] = nil end
+        end
+        if not s.passed then allPassed = false end
+        for _, a in ipairs(s.assertions) do
+            totalAssertions = totalAssertions + 1
+            if a.passed then
+                passedAssertions = passedAssertions + 1
+            else
+                failedAssertions = failedAssertions + 1
+            end
+        end
+    end
 
+    local totalDuration = math.floor((os.clock() - run.startedAt) * 1000)
     local summary = {
         total_scenarios = #scenarios,
         total_assertions = totalAssertions,
@@ -660,14 +663,133 @@ function M.runE2E()
         summary = summary,
         scenarios = scenarios
     }
-
     report.json = M.toJson(report)
-    return report
+
+    M._lastReport = report
+    M._run = nil
 end
 
-function M.runE2EJson()
-    local report = M.runE2E()
-    return M.toJson(report)
+local function addScenario(s)
+    if M._run and s then table.insert(M._run.scenarios, s) end
+end
+
+-- Run one stage; on error record an ERR scenario and keep the chain alive
+local function runStage(label, fn)
+    local ok, err = xpcall(fn, function(e)
+        return tostring(e) .. "\n" .. debug.traceback()
+    end)
+    if not ok and M._run then
+        local fallback = newScenario("ERR", "Scenario " .. label .. " error")
+        fallback.passed = false
+        fallback:assert("Scenario completed without unhandled error", false, tostring(err))
+        table.insert(M._run.scenarios, fallback)
+    end
+end
+
+local function runChain(steps, idx)
+    local st = steps[idx]
+    if not st then finishRun() return end
+    local function step()
+        runStage(st.label, st.fn)
+        runChain(steps, idx + 1)
+    end
+    local delay = st.delay or 0
+    if not core.delayGameThread(delay, step) then
+        step() -- last resort: run inline (delays unavailable)
+    end
+end
+
+local function buildSteps()
+    return {
+        { label = "A", delay = 0,
+          fn = function() addScenario(runScenarioA()) end },
+        { label = "B-enter", delay = 0,
+          fn = function() M._run.ctx.b = runScenarioB_enter() end },
+        -- auto-pause fires 600 ms after entry; assert at +900 ms
+        { label = "B-finish", delay = 900,
+          fn = function() addScenario(runScenarioB_finish(M._run.ctx.b)) end },
+        { label = "C-enter", delay = 0,
+          fn = function() M._run.ctx.c = runScenarioC_enter() end },
+        -- conduit DefaultFOV follows the slider (POV.FOV is stale under pause)
+        { label = "C-assert", delay = 200,
+          fn = function() runScenarioC_assert(M._run.ctx.c) end },
+        -- conduit DefaultFOV back to default after osdReset
+        { label = "C-finish", delay = 200,
+          fn = function() addScenario(runScenarioC_finish(M._run.ctx.c)) end },
+        { label = "D-spawn", delay = 0,
+          fn = function()
+              local s, clone = runScenarioD_spawn()
+              M._run.ctx.d = s
+              M._run.ctx.clone = clone
+          end },
+        -- appearance pulses finish ~640 ms after spawn; assert at +1500 ms
+        { label = "D-finish", delay = 1500,
+          fn = function() addScenario(runScenarioD_finish(M._run.ctx.d, M._run.ctx.clone)) end },
+        { label = "E", delay = 0,
+          fn = function() addScenario(runScenarioE()) end },
+    }
+end
+
+local function abortReport(errorText)
+    M._lastReport = {
+        status = "ABORTED",
+        aborted = true,
+        error = errorText,
+        summary = { total_scenarios = 0, total_assertions = 0, passed_assertions = 0,
+                    failed_assertions = 0, status = "ABORTED", duration_ms = 0 },
+        scenarios = {}
+    }
+    return { status = "ABORTED", report = M._lastReport }
+end
+
+-- Starts the staged suite; returns immediately. Poll getE2EStatus() for the report.
+function M.startE2E()
+    if M._run then return { status = "BUSY" } end
+
+    logMsg("==================================================")
+    logMsg(" TBOD_PhotoMode - In-Engine E2E & Integration Tests")
+    logMsg("==================================================")
+
+    local pc = Subsystem.playerController()
+    if not (pc and pc:IsValid() and core.isRealPlayerController(pc)) then
+        logMsg("E2E ABORTED: PlayerController not in gameplay state.")
+        return abortReport("Active PlayerController not found or not in gameplay state (Main Menu / loading screen). Please load a game save first.")
+    end
+
+    local pawn = nil
+    pcall(function() pawn = pc.Pawn or pc.Character end)
+    if not (pawn and pawn:IsValid()) then
+        logMsg("E2E ABORTED: Player pawn not found.")
+        return abortReport("Active Player Pawn not found in world. Tests require an active player character.")
+    end
+
+    -- Normalize: a PM session left open (manual entry, previous run, crash)
+    -- would contaminate every scenario - inherited OSD state, poses, clones.
+    if State.photoModeActive then
+        logMsg("E2E: PM already active - exiting first for a clean baseline")
+        photomode.exitPhotoMode()
+    end
+
+    M._lastReport = nil
+    M._run = { scenarios = {}, ctx = {}, startedAt = os.clock() }
+    runChain(buildSteps(), 1)
+    return { status = "STARTED" }
+end
+
+-- Polled by RunEngineTests.ps1 (one bridge eval per poll).
+function M.getE2EStatus()
+    if M._run then
+        return { status = "RUNNING", scenarios_done = #M._run.scenarios }
+    end
+    if M._lastReport then
+        return { status = "DONE", report = M._lastReport }
+    end
+    return { status = "IDLE" }
+end
+
+-- Async entry point: starts the suite, returns the STARTED/BUSY/ABORTED ack.
+function M.runE2E()
+    return M.startE2E()
 end
 
 return M

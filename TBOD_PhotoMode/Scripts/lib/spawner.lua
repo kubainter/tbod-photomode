@@ -963,7 +963,7 @@ function M.spawnClone()
     return clone
 end
 
----------------------------------------------------------------------------- Generic asset loader
+-- Generic asset loader
 -- StaticFindObject only sees loaded assets; AssetRegistryHelpers pulls in any
 -- asset on demand (appearance data, AnimSequences, prop StaticMeshes).
 function M.loadAsset(fullPath)
@@ -991,7 +991,7 @@ function M.loadAsset(fullPath)
 end
 M.loadAppearanceAsset = M.loadAsset
 
----------------------------------------------------------------------------- Clone transform controls
+-- Clone transform controls
 
 function M.setCloneLocation(clone, desiredLoc)
     if not (clone and clone:IsValid()) then return end
@@ -1180,7 +1180,6 @@ function M.setPoseMetadata(idx, zOffset, ground)
     M.poseMetadata[idx] = m
 end
 
-----------------------------------------------------------------------------
 -- Weapon diagnostics. tostring(FName) prints the address — :ToString()
 -- reads the actual name.
 local function fnameStr(fn)
@@ -1385,7 +1384,7 @@ local function resolveHandAttach(target, sockName, hand)
     return comp, name
 end
 
----------------------------------------------------------------------------- Hand props (book, spoon, bottle, shovel...)
+-- Hand props (book, spoon, bottle, shovel...)
 -- StaticMeshActor attached to the hand socket — same visual mechanism as the
 -- weapon path, driven by pose metadata (entry.prop).
 
@@ -2019,7 +2018,7 @@ function M.equipCloneWeapon(clone)
     return M.equipWeapon(clone, true, false)
 end
 
----------------------------------------------------------------------------- Player weapon (visual proxy only)
+-- Player weapon (visual proxy only)
 
 M.playerWeaponProxy = nil
 M.playerSheathedVis = nil

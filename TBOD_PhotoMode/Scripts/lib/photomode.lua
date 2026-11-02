@@ -1,6 +1,4 @@
--- TBOD_PhotoMode photomode module
--- Photo Mode lifecycle, HUD, Player, Slomo, Pause
-
+local core = require("lib.core")
 local core = require("lib.core")
 local State = core.State
 local Config = core.Config
@@ -10,7 +8,7 @@ local dbg = core.dbg
 
 local M = {}
 
----------------------------------------------------------------------------- Helpers (reduce boilerplate)
+-- Helpers
 
 local function isValidObject(obj)
     if not obj then return false end
@@ -81,15 +79,6 @@ local function getPlayerPawn()
     return nil
 end
 
--- Common restore helper: call fn, log label, clear field
-local function restoreField(label, field, fn)
-    if State[field] ~= nil then
-        pcall(fn)
-        logMsg("  %s restored", label)
-        State[field] = nil
-    end
-end
-
 -- Restore a CDO setting if we snapshotted it
 local function restoreCDOSetting(settings, field, origField, default)
     if State[origField] ~= nil then
@@ -99,7 +88,7 @@ local function restoreCDOSetting(settings, field, origField, default)
     end
 end
 
----------------------------------------------------------------------------- HUD: targeted hide
+-- HUD: targeted hide
 
 function M.setHUDVisible(visible)
     local osd = require("lib.osd")
@@ -169,7 +158,7 @@ function M.setHUDVisible(visible)
     State.hudVisible = visible
 end
 
----------------------------------------------------------------------------- Cutscene sequences (force_cutscene_pm)
+-- Cutscene sequences (force_cutscene_pm)
 
 local SEQUENCE_PLAYER_CLASSES = {
     "CinematicNodeLevelSequencePlayer",
@@ -295,7 +284,7 @@ function M.rearmCutsceneInput()
     end
 end
 
----------------------------------------------------------------------------- Photo Mode core
+-- Photo Mode core
 
 function M.enterPhotoMode()
     if State.photoModeActive then return end
@@ -708,7 +697,6 @@ function M.enterPhotoMode()
     end
 end
 
----------------------------------------------------------------------------- Exit: decomposed into small steps
 
 local function restorePlayerMovement()
     if not State.playerMovePrepared then return end
@@ -922,11 +910,11 @@ function M.exitPhotoMode()
     -- FOV unlock
     if pc and pc:IsValid() then
         pcall(function() pc:FOV(0.0) end)
-        pcall(function() pc:ConsoleCommand("fov 0", false) end)
     end
     if pcm then
-        pcall(function() pcm:UnlockFOV() end)
-        pcall(function() pcm:SetFOV(0.0) end)
+        -- APlayerCameraManager has no SetFOV/UnlockFOV UFUNCTIONs in patch 3
+        -- (verified against CXXHeaderDump) — the explicit DefaultFOV restore
+        -- below is the authoritative unlock.
         if State.origDefaultFOV then
             pcall(function() pcm.DefaultFOV = State.origDefaultFOV end)
         end
@@ -1104,7 +1092,7 @@ function M.exitPhotoMode()
     logMsg("PhotoMode EXIT complete")
 end
 
----------------------------------------------------------------------------- Pause toggle
+-- Pause toggle
 
 function M.togglePause()
     if not State.photoModeActive then return end
@@ -1122,7 +1110,7 @@ function M.togglePause()
     logMsg("Pause: %s", State.paused and "PAUSED" or "UNPAUSED")
 end
 
----------------------------------------------------------------------------- Slomo (time dilation)
+-- Slomo (time dilation)
 
 function M.applySlomo()
     local pc = getPC()
@@ -1275,7 +1263,7 @@ function M.unfreeze()
     require("lib.osd").updateOSD()
 end
 
----------------------------------------------------------------------------- Player hide
+-- Player hide
 
 function M.setPawnHidden(pawn, hide)
     if not isValidObject(pawn) then return end
@@ -1294,7 +1282,7 @@ function M.toggleHidePlayer()
     require("lib.osd").updateOSD()
 end
 
----------------------------------------------------------------------------- HUD toggle
+-- HUD toggle
 
 local lastHUDToggleTime = 0
 

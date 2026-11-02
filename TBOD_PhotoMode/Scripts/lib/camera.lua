@@ -1,6 +1,3 @@
--- TBOD_PhotoMode camera module
--- GetCameraView hook, FOV, Roll, vertical movement
-
 local core = require("lib.core")
 local State = core.State
 local Config = core.Config
@@ -10,7 +7,7 @@ local dbg = core.dbg
 
 local M = {}
 
----------------------------------------------------------------------------- FOV: GetCameraView hook
+-- FOV: GetCameraView hook
 
 local hookDiagLogged = false
 
@@ -104,8 +101,9 @@ function M.hookGetCameraView()
                 end
 
                 if isPhotoCam then
-                    pcall(function() outDesiredView.FOV = State.fov end)
-                    pcall(function() outDesiredView:set("FOV", State.fov) end)
+                    -- No FOV write here: the embedded FMinimalViewInfo is the
+                    -- render authority (TBOD_PMFov mirrors State.fov via
+                    -- pcm.DefaultFOV — see applyFOV below).
                     if State.roll and State.roll ~= 0.0 then
                         pcall(function()
                             local rot = outDesiredView.Rotation
@@ -141,7 +139,7 @@ function M.hookGetCameraView()
     end
 end
 
----------------------------------------------------------------------------- Menu detection (shared)
+-- Menu detection (shared)
 -- Returns true + layer/widget name when a game menu widget is active on the
 -- WBP_UIFrontend layer stacks (pause menu, inventory, map, journal...).
 -- GetActiveWidget() (not GetNumWidgets()): CommonUI keeps pooled/deactivated
@@ -233,7 +231,7 @@ function M.getActiveDialogueWidget()
     return nil
 end
 
----------------------------------------------------------------------------- ViewTarget watchdog (poller)
+-- ViewTarget watchdog (poller)
 -- GetCameraView is invoked natively, not through ProcessEvent — the hook may
 -- never fire, so this poller is the primary view-theft detector.
 
@@ -340,7 +338,19 @@ function M.startWatchdog()
             -- only eject for real menus while this mode is not active.
             local menuOpen, layerName, wname = M.isMenuOpen()
             local isDialogueWidget = wname and (tostring(wname):find("Dialogue") ~= nil or tostring(wname):find("WBP_Dialogue") ~= nil)
-            if menuOpen and not (State.cutscenePMEntry and isDialogueWidget) then
+            -- WBP_PauseMenu_C is pushed by the game on EVERY world pause —
+            -- including our own freeze — and stays visible briefly after
+            -- unpause. Ignore it when we own the pause or the world isn't
+            -- actually paused; a real ESC pause (world paused, not ours)
+            -- still ejects.
+            local isPauseMenu = wname and (tostring(wname):find("PauseMenu") ~= nil or tostring(wname):find("MainMenu") ~= nil)
+            local worldPaused = false
+            do
+                local gs = Subsystem.gameplayStatics()
+                if gs then pcall(function() worldPaused = gs:IsGamePaused(pc) == true end) end
+            end
+            local ownPauseArtifact = isPauseMenu and (State.paused == true or not worldPaused)
+            if menuOpen and not ownPauseArtifact and not (State.cutscenePMEntry and isDialogueWidget) then
                 forceExit(("menu widget active on %s (%s)"):format(layerName, wname))
                 State.viewWatchdogRunning = false
                 return
@@ -359,7 +369,7 @@ function M.startWatchdog()
     dbg("Watchdog: poller started")
 end
 
----------------------------------------------------------------------------- FOV
+-- FOV
 
 -- TIK-013: Camera speed guard to prevent speed multiplication during FOV/DoF modulation
 function M.reassertCameraSpeed()
@@ -390,6 +400,12 @@ function M.reassertCameraSpeed()
     end)
 end
 
+-- FOV conduit (patch 3): PM renders through APhotoCameraActor's embedded
+-- FMinimalViewInfo (+0x380, FOV channel +0x3B0/0x3B4/0x3B8). The C++ mod
+-- TBOD_PMFov (shipped in this mod's dlls/) mirrors pcm.DefaultFOV into that
+-- struct every frame while the photo actor is the view target — so writing
+-- DefaultFOV here IS the live FOV slider. Writing POV.FOV directly does not
+-- work: the native CalcCamera rewrites it each frame.
 function M.applyFOV()
     if not State.photoModeActive then return end
 
@@ -422,7 +438,7 @@ function M.resetFOV()
     osd.updateOSD()
 end
 
----------------------------------------------------------------------------- Camera Roll
+-- Camera Roll
 
 function M.applyRoll()
     if State.pmMode == "cutscene" then return end
@@ -481,7 +497,7 @@ function M.adjustRoll(delta)
     osd.updateOSD()
 end
 
----------------------------------------------------------------------------- Flight, Rotation & Tether Clamping
+-- Flight, Rotation & Tether Clamping
 
 local function clampTether(targetLoc)
     local anchor = State.playerOrigLoc
@@ -569,8 +585,6 @@ function M.movePhotoCameraFlight(forwardInput, rightInput, speed)
     local cosY = math.cos(yawRad)
     local sinY = math.sin(yawRad)
 
-    -- Forward vector: (cos(yaw), sin(yaw), 0)
-    -- Right vector: (-sin(yaw), cos(yaw), 0)
     local deltaX = (cosY * forwardInput - sinY * rightInput) * speed
     local deltaY = (sinY * forwardInput + cosY * rightInput) * speed
 
@@ -604,5 +618,4 @@ function M.rotatePhotoCamera(deltaPitch, deltaYaw)
 end
 
 return M
-
 

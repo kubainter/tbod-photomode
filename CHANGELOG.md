@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-11-02
+
+### Fixed
+- **FOV Slider Broken After Game Patch 3**: Field of View adjustment now works again on game patch 3 (CL 265636). The release now bundles a native `dlls/main.dll` (TBOD_PMFov) that mirrors the camera manager FOV into the photo camera's embedded `FMinimalViewInfo`, restoring live FOV control without replacing the native photo camera.
+- **Photo Mode Force-Close on Re-entry**: Photo Mode no longer force-exits when re-entered shortly after leaving a paused session. The menu watchdog no longer misreads the pause-menu widget spawned by PM's own freeze transition as an external menu.
+
 ## [1.6.2] - 2026-10-05
 
 ### Added

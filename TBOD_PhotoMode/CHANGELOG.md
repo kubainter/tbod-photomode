@@ -1,3 +1,7 @@
+# 1.6.3
+- Fixed: FOV Slider Broken After Game Patch 3 - Field of View adjustment works again on game patch 3 (CL 265636). The release now bundles a native dlls/main.dll (TBOD_PMFov) that mirrors the camera manager FOV into the photo camera's embedded FMinimalViewInfo, restoring live FOV control without replacing the native photo camera.
+- Fixed: Photo Mode Force-Close on Re-entry - Photo Mode no longer force-exits when re-entered shortly after leaving a paused session. The menu watchdog no longer misreads the pause-menu widget spawned by PM's own freeze transition as an external menu.
+
 # 1.6.2
 - Fixed: Camera Speed Spikes on FOV & DoF Adjustments - eliminated sudden speed spikes or camera freezing when modifying Field of View or Depth of Field aperture; camera flight speed is now cleanly stabilized across all zoom levels (TIK-013).
 - Fixed: Interior Lighting Blowout on Player Movement - moving or posing the player character (Target = Player) inside interiors (tents, caves, houses) no longer drops interior trigger volume overlaps or causes blinding light blowouts; capsule query overlaps are preserved during movement (TIK-014).

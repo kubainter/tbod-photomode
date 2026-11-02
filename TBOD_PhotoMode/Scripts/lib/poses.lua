@@ -1,4 +1,4 @@
-﻿local core = require("lib.core")
+local core = require("lib.core")
 local State = core.State
 local Subsystem = core.Subsystem
 local logMsg = core.logMsg
@@ -77,7 +77,7 @@ M.POSES = {
         { name = "Digging",         path = "/Game/_Dawnwalker/Animation_MH/Humans/Child_Human/Animation/Community/Working/Child_Human_Community_Playing_Digging_Loop_01.Child_Human_Community_Playing_Digging_Loop_01", z_offset = -35.0, ground = true },
         { name = "Kneeling",        path = "/Game/_Dawnwalker/Animation_MH/Humans/Child_Human/Animation/Community/FastOut/Child_Human_Community_Kneeling_C_FastOut.Child_Human_Community_Kneeling_C_FastOut", loop = false, z_offset = -30.0, ground = true },
     },
-    -- Uriash (Ocha etc.) run SKEL_UMA, not DW_Human_Skeleton â€” human
+    -- Uriash (Ocha etc.) run SKEL_UMA, not DW_Human_Skeleton — human
     -- AnimSequences can't play on them; "Off" leaves the native AnimBP. Add
     -- Uriash paths once dumped (AnimDumper near the Uriash village).
     uriash = {
@@ -88,7 +88,7 @@ M.POSES = {
 -- Hand props: preset name -> { mesh, socket?, loc?, rot?, scale? }.
 -- socket defaults to the right-hand weapon socket; loc/rot/scale are applied
 -- Ground truth (HeldDump of live NPCs): the game attaches prop meshes to the
--- authored prop_r / prop_l sockets with an IDENTITY relative transform â€” the
+-- authored prop_r / prop_l sockets with an IDENTITY relative transform — the
 -- grip offset/rotation is baked into the socket itself, so NO loc/rot here.
 -- Long tools go on socket_weapon_r instead (weapon-style grip, live rake NPC).
 M.PROP_PRESETS = {
@@ -438,7 +438,7 @@ function M.applyPose()
         local propDef  = resolveProp(entry.prop)
         local propDefL = resolveProp(entry.prop_l)
         spawner.applyPropState(M.targetIdx, propDef, propDefL)
-        -- A right-hand prop shares the weapon socket â€” it suppresses the
+        -- A right-hand prop shares the weapon socket — it suppresses the
         -- weapon. A left-hand prop can coexist with one.
         spawner.applyWeaponState(M.targetIdx, not propDef and wantsWeapon(entry))
         if not wantsLoop(entry) then
@@ -447,11 +447,6 @@ function M.applyPose()
     else
         logMsg("Poses: apply failed (%s)", tostring(errP))
     end
-end
-
-function M.resetPose()
-    M.poseState[M.targetIdx] = 1
-    M.applyPose()
 end
 
 function M.resetAllPoses()

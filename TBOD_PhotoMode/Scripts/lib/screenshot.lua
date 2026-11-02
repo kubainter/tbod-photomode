@@ -1,10 +1,7 @@
--- TBOD_PhotoMode screenshot module
--- Screenshot capture (PowerShell + GetClientRect + reactive watcher + debounce)
---
--- Timing contract: the OSD is hidden first, then we wait ~500 ms so a few frames
--- render without it BEFORE PowerShell grabs the screen. A per-shot marker file
--- avoids stale-marker races. The PS script refuses to capture when the game
--- window is not foreground (Alt-Tab) and reports "SKIPPED" instead.
+-- Screenshot via PowerShell GetClientRect. Timing contract: hide OSD, wait
+-- ~500 ms so frames render without it BEFORE the grab; a per-shot marker
+-- file avoids stale races; the PS script reports "SKIPPED" when the game
+-- window is not foreground.
 
 local core = require("lib.core")
 local State = core.State
@@ -119,6 +116,12 @@ Set-Content -Path "%s" -Value "SKIPPED" -Encoding UTF8
 
         -- Reactive watcher: poll for the marker file before restoring OSD
         local attempts = 0
+        local function finishShot()
+            State.screenshotInProgress = false
+            restoreOverlayState()
+            os.execute('del "' .. tmpPs1 .. '" 2>NUL')
+            os.execute('del "' .. tmpOut .. '" 2>NUL')
+        end
         local function checkDone()
             attempts = attempts + 1
             local checkF = io.open(tmpOut, "r")
@@ -129,7 +132,6 @@ Set-Content -Path "%s" -Value "SKIPPED" -Encoding UTF8
                     if finalPath == "SKIPPED" then
                         logMsg("  Screenshot skipped (game window not focused)")
                     else
-                        -- Try to get file size for log
                         local imgF = io.open(finalPath, "rb")
                         local sizeStr = ""
                         if imgF then
@@ -139,10 +141,7 @@ Set-Content -Path "%s" -Value "SKIPPED" -Encoding UTF8
                         end
                         logMsg("  Screenshot saved: %s%s", finalPath, sizeStr)
                     end
-                    State.screenshotInProgress = false
-                    restoreOverlayState()
-                    os.execute('del "' .. tmpPs1 .. '" 2>NUL')
-                    os.execute('del "' .. tmpOut .. '" 2>NUL')
+                    finishShot()
                     return
                 end
             end
@@ -151,10 +150,7 @@ Set-Content -Path "%s" -Value "SKIPPED" -Encoding UTF8
                 pcall(function() core.delayGameThread(150, checkDone) end)
             else
                 logMsg("  Screenshot polling timed out")
-                State.screenshotInProgress = false
-                restoreOverlayState()
-                os.execute('del "' .. tmpPs1 .. '" 2>NUL')
-                os.execute('del "' .. tmpOut .. '" 2>NUL')
+                finishShot()
             end
         end
 
