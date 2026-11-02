@@ -218,6 +218,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 > *Gotowy tekst do wklejenia w pole Changelog na Nexus Mods:*
 
 ```text
+v1.6.3
+* Fixed FOV slider broken after game Patch 3 (CL 265636): Field of View adjustment works again. The release now bundles a native dlls/main.dll (TBOD_PMFov) that mirrors the camera FOV into the photo camera's embedded view info, restoring live FOV control without replacing the native photo camera. Keep every file from the archive when updating - the new dlls folder is required.
+* Fixed Photo Mode force-close on re-entry: entering Photo Mode shortly after leaving a paused session no longer triggers a false menu-watchdog auto-exit.
+* Changed: FOV slider maximum is now 160 degrees.
+
 v1.6.2
 * Fixed Camera Speed Spikes on FOV & DoF Adjustments: eliminated sudden rapid acceleration or freezing when altering Field of View or Depth of Field aperture (decoupled camera speed multiplier from FOV scaling).
 * Fixed Interior Lighting Blowout on Player Movement: moving or posing the player character (Target = Player) in interiors (tents, caves, houses) no longer drops interior trigger volume overlaps or causes blinding light blowouts.
