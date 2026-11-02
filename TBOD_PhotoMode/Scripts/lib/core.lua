@@ -1,6 +1,4 @@
--- TBOD_PhotoMode core module
--- State, logging, config, subsystems, helpers, dispatch
-
+local M = {}
 local M = {}
 
 M.VERSION = "1.6.2"
@@ -40,7 +38,6 @@ M.State = {
     origDeceleration = nil,
     origTurnRate = nil,
     origLookUpRate = nil,
-    -- Caching for performance
     classToValidName = {},
     staticObjectCache = {},
     osdClasses = {},
@@ -67,7 +64,7 @@ M.State = {
     dofPPComp = nil,
     uiFrontend = nil,
     viewWatchdogRunning = false,
-    -- Cutscene PM state (Milestone 2)
+    -- Cutscene PM state
     cutsceneCameraActor = nil,
     cutsceneCameraComponent = nil,
     origCutsceneCamCompRelRot = nil,
@@ -76,14 +73,13 @@ M.State = {
     origCutsceneExposure = nil,
     origCutsceneFocusSettings = nil,
     origCutsceneAperture = nil,
-    -- Input isolation (Sprint 1.4.0)
+    -- Input isolation
     gameInputIsolated = false,
     isolatedPawn = nil,
     viewWasPhotoCam = false,
     photoCameraTickSaved = nil,
-    suppressedContexts = nil,
 
-    -- Clone/directing placement state (Sprint 1.5.0)
+    -- Clone/directing placement state
     cloneDist = 150.0,
     cloneSide = 0.0,
     cloneHeight = 0.0,
@@ -128,7 +124,7 @@ function M.dbg(fmt, ...)
     if M.Config.debug then M.logMsg(fmt, ...) end
 end
 
----------------------------------------------------------------------------- Config
+-- Config
 
 M.Defaults = {
     toggle_key        = "F8",
@@ -159,7 +155,7 @@ M.Defaults = {
     osd_tab_next_key = "PageDown",
     osd_tab_prev_key = "PageUp",
 
-    -- Experimental (1.5.0):
+    -- Experimental:
     -- enable_experimental shows the Target/Pose/Spawn NPC/Frame Step OSD rows;
     -- force_cutscene_pm overrides the native CanActivatePhotomode guardian by
     -- pausing live cinematic sequences first (resumed on exit, 1.6.0).
@@ -170,11 +166,11 @@ M.Defaults = {
     enable_input_isolation = true,
     auto_exit_on_view_change = true,
 
-    -- Auto-freeze on enter (1.5.0): on by default, mimics built-in photo
-    -- modes; set 0 to keep the world running as in v1.4.x.
+    -- Auto-freeze on enter (on by default, mimics built-in photo modes);
+    -- set 0 to keep the world running.
     pause_on_enter     = true,
 
-    -- Clone/directing spawn offsets and step sizes (Sprint 1.5.0)
+    -- Clone/directing spawn offsets and step sizes
     clone_distance      = 150.0,
     clone_side          = 0.0,
     clone_height        = 0.0,
@@ -183,7 +179,7 @@ M.Defaults = {
     clone_step_side     = 10.0,
     clone_step_height   = 5.0,
     clone_step_yaw      = 5.0,
-    -- Max simultaneously spawned clones (1.6.0); 0 = no limit.
+    -- Max simultaneously spawned clones; 0 = no limit.
     max_clones          = 5,
     -- Verbose diagnostics (socket dumps, per-component scans) — release off.
     debug               = false,
@@ -195,8 +191,7 @@ for k, v in pairs(M.Defaults) do M.Config[k] = v end
 function M.trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
 -- UObject userdata wrappers can differ for the same underlying object;
--- compare by address (fall back to full name). Same helper as spawner's
--- local sameObject — shared here for camera/photomode ViewTarget checks.
+-- compare by address (fall back to full name).
 function M.sameObject(a, b)
     if a == b then return true end
     if not (a and b) then return false end
@@ -271,7 +266,6 @@ function M.loadCustomPoses(path)
     f:close()
 end
 
--- Load config at module-load time
 local configPath = M.resolveConfigPath()
 if M.loadConfig(configPath) then
     M.loadCustomPoses(configPath)
@@ -298,7 +292,7 @@ function M.reloadConfig()
     return false
 end
 
----------------------------------------------------------------------------- Subsystems
+-- Subsystems
 
 function M.isValidObject(obj)
     if not obj then return false end
@@ -429,7 +423,6 @@ M.Subsystem = {
     gameplayStatics = function() return M.findStatic("/Script/Engine.Default__GameplayStatics") end,
     kismetSystem = function() return M.findStatic("/Script/Engine.Default__KismetSystemLibrary") end,
     photoModeSettings = function() return M.findStatic("/Script/DogwoodSystem.Default__DogwoodPhotomodeSettings") end,
-    automationUtils = function() return M.findStatic("/Script/AutomationUtils.Default__AutomationUtilsBlueprintLibrary") end,
     photoCamera = function()
         if M.isValidInstance(M.State.cachedPhotoCamera) then return M.State.cachedPhotoCamera end
         M.State.cachedPhotoCamera = nil
@@ -570,7 +563,7 @@ function M.restoreActorTickable(actor, saved)
     end
 end
 
----------------------------------------------------------------------------- Game-thread queue
+-- Game-thread queue
 
 function M.dispatch(fn)
     ExecuteInGameThread(function()
@@ -609,7 +602,6 @@ function M.clearCaches()
     M.State.cachedPM = nil
     M.State.cachedPhotoCamera = nil
     M.State.cachedPC = nil
-    M.State.suppressedContexts = nil
     M.State.classToValidName = {}
     M.State.staticObjectCache = {}
     M.State.osdClasses = {}
@@ -622,7 +614,6 @@ function M.clearCaches()
 end
 
 return M
-
 
 
 

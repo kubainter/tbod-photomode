@@ -1,10 +1,6 @@
--- TBOD_PhotoMode optics module
--- Time of Day (SkyCreator), DoF (Auto-Focus via MinimalViewInfo), Aspect Ratio, Weather (SkyCreator presets)
---
--- SkyCreatorPlugin rewrites the sun light transform from TimeOfDay every tick —
--- rotating a DirectionalLight is pointless. DoF/AspectRatio CVars and
--- PlayerCameraManager defaults are likewise ignored by the active view, so both
--- are applied per-frame on outDesiredView (FMinimalViewInfo) in the camera hook.
+-- Optics: TimeOfDay/Weather via SkyCreator, DoF, aspect ratio, exposure.
+-- SkyCreator rewrites the sun transform from TimeOfDay every tick —
+-- rotating a DirectionalLight is pointless.
 
 local core = require("lib.core")
 local State = core.State
@@ -25,7 +21,7 @@ local ASPECT_RATIOS = {
 
 local DOF_FSTOP = 0.5
 
----------------------------------------------------------------------------- Post-process component (DoF)
+-- Post-process component (DoF)
 -- PhotoCameraActor has NO camera component (pawn CalcCamera); its captured
 -- comp is the PLAYER's camera — writes there leak into gameplay. Our own
 -- unbound PostProcessComponent on the photo pawn blends regardless of camera.
@@ -106,7 +102,7 @@ local function teardownDoFComp()
     State.dofPPComp = nil
 end
 
----------------------------------------------------------------------------- SkyCreator lookup
+-- SkyCreator lookup
 
 function M.skyCreator()
     if State.skyCreator and State.skyCreator:IsValid() then return State.skyCreator end
@@ -135,7 +131,7 @@ function M.skyCreator()
     return sky
 end
 
----------------------------------------------------------------------------- Time of Day
+-- Time of Day
 
 function M.syncTimeOfDay()
     local sky = M.skyCreator()
@@ -174,7 +170,7 @@ function M.adjustTimeOfDay(delta)
     require("lib.osd").updateOSD()
 end
 
----------------------------------------------------------------------------- Auto-Focus / DoF
+-- Auto-Focus / DoF
 
 -- DoF is written through every PP channel that might feed the photo view
 -- (own unbound volume, SkyCreator's internal pipeline, captured camera comp).
@@ -184,7 +180,6 @@ local DOF_OVERRIDE_FIELDS = {
     "bOverride_DepthOfFieldFstop",
     "bOverride_DepthOfFieldMinFstop",
     "bOverride_DepthOfFieldFocalRegion",
-    "bOverride_FilmSaturation",
 }
 
 local function setDoFOnSettings(pps)
@@ -307,7 +302,7 @@ function M.applyDoF()
 
     -- Channel 2: Cutscene PM (UCineCameraComponent FocusSettings & Aperture)
     if State.cutscenePMEntry then
-        local vt, camComp = core.getActiveCutsceneCamera()
+        local _, camComp = core.getActiveCutsceneCamera()
         if camComp and camComp:IsValid() then
             pcall(function()
                 if State.origCutsceneFocusSettings == nil then
@@ -335,36 +330,40 @@ function M.applyDoF()
     end
 end
 
+-- Cutscene PM: give the CineCamera back its captured FocusSettings/Aperture.
+local function restoreCutsceneFocus()
+    local _, camComp = core.getActiveCutsceneCamera()
+    if camComp and camComp:IsValid() then
+        pcall(function()
+            if State.origCutsceneFocusSettings then
+                local fs = camComp.FocusSettings
+                if fs then
+                    fs.FocusMethod = State.origCutsceneFocusSettings.FocusMethod
+                    fs.ManualFocusDistance = State.origCutsceneFocusSettings.ManualFocusDistance
+                    camComp:SetFocusSettings(fs)
+                end
+            end
+            if State.origCutsceneAperture then
+                camComp:SetCurrentAperture(State.origCutsceneAperture)
+            end
+            logMsg("  Cutscene PM: CineCamera Focus restored")
+        end)
+    end
+end
+
 function M.disableDoF()
     State.dofEnabled = false
     clearDoFEverywhere()
 
-    -- Cutscene mode: restore native focus settings
     if State.cutscenePMEntry then
-        local vt, camComp = core.getActiveCutsceneCamera()
-        if camComp and camComp:IsValid() then
-            pcall(function()
-                if State.origCutsceneFocusSettings then
-                    local fs = camComp.FocusSettings
-                    if fs then
-                        fs.FocusMethod = State.origCutsceneFocusSettings.FocusMethod
-                        fs.ManualFocusDistance = State.origCutsceneFocusSettings.ManualFocusDistance
-                        camComp:SetFocusSettings(fs)
-                    end
-                end
-                if State.origCutsceneAperture then
-                    camComp:SetCurrentAperture(State.origCutsceneAperture)
-                end
-                logMsg("  Cutscene PM: CineCamera Focus restored")
-            end)
-        end
+        restoreCutsceneFocus()
     end
 
     logMsg("Auto-Focus: DoF off")
     require("lib.osd").updateOSD()
 end
 
----------------------------------------------------------------------------- Exposure (EV bias)
+-- Exposure (EV bias)
 
 function M.applyExposure()
     local comp = ensureDoFComp()
@@ -388,7 +387,7 @@ function M.applyExposure()
 
     -- Cutscene mode: also apply directly to active cinematic camera component & PCM
     if State.cutscenePMEntry then
-        local vt, camComp = core.getActiveCutsceneCamera()
+        local _, camComp = core.getActiveCutsceneCamera()
         if camComp and camComp:IsValid() then
             pcall(function()
                 local pps = camComp.PostProcessSettings
@@ -448,19 +447,15 @@ function M.getExposureLabel()
     return string.format("%+.2f EV", State.exposureBias or 0.0)
 end
 
----------------------------------------------------------------------------- Aspect Ratio
-
-function M.applyAspectRatio()
-    -- Fake letterbox: UMG black bars (see osd.setLetterbox). A real constrained
-    -- aspect cannot apply to the photo pawn's componentless view.
-    require("lib.osd").setLetterbox(State.aspectRatioValue)
-end
+-- Aspect Ratio
 
 function M.adjustAspectRatio(delta)
     local n = #ASPECT_RATIOS
     State.aspectRatioIdx = ((State.aspectRatioIdx + delta - 1) % n) + 1
     State.aspectRatioValue = ASPECT_RATIOS[State.aspectRatioIdx].val
-    M.applyAspectRatio()
+    -- Fake letterbox: UMG black bars (see osd.setLetterbox). A real constrained
+    -- aspect cannot apply to the photo pawn's componentless view.
+    require("lib.osd").setLetterbox(State.aspectRatioValue)
     logMsg("Aspect Ratio: %s", ASPECT_RATIOS[State.aspectRatioIdx].label)
 
     require("lib.osd").updateOSD()
@@ -470,7 +465,7 @@ function M.getAspectRatioLabel()
     return ASPECT_RATIOS[State.aspectRatioIdx].label
 end
 
----------------------------------------------------------------------------- Weather (SkyCreatorWeatherPreset)
+-- Weather (SkyCreatorWeatherPreset)
 
 -- SkyCreatorWeatherSettings vs WeatherPreset: same 11 sub-structs, only the
 -- MaterialFX field name differs. Field-by-field property writes — passing the
@@ -594,7 +589,7 @@ function M.getWeatherLabel()
     return State.weatherPresets[State.weatherIdx].name
 end
 
----------------------------------------------------------------------------- Restore / Reset
+-- Restore / Reset
 
 function M.restoreAll()
     local sky = State.skyCreator
@@ -654,7 +649,7 @@ function M.restoreAll()
     end
     -- Restore Cutscene PM camera adjustments
     if State.origCutsceneExposure then
-        local vt, camComp = core.getActiveCutsceneCamera()
+        local _, camComp = core.getActiveCutsceneCamera()
         if camComp and camComp:IsValid() then
             pcall(function()
                 local pps = camComp.PostProcessSettings
@@ -682,22 +677,7 @@ function M.restoreAll()
     end
 
     if State.origCutsceneFocusSettings or State.origCutsceneAperture then
-        local vt, camComp = core.getActiveCutsceneCamera()
-        if camComp and camComp:IsValid() then
-            pcall(function()
-                if State.origCutsceneFocusSettings then
-                    local fs = camComp.FocusSettings
-                    if fs then
-                        fs.FocusMethod = State.origCutsceneFocusSettings.FocusMethod
-                        fs.ManualFocusDistance = State.origCutsceneFocusSettings.ManualFocusDistance
-                        camComp:SetFocusSettings(fs)
-                    end
-                end
-                if State.origCutsceneAperture then
-                    camComp:SetCurrentAperture(State.origCutsceneAperture)
-                end
-            end)
-        end
+        restoreCutsceneFocus()
         State.origCutsceneFocusSettings = nil
         State.origCutsceneAperture = nil
     end
@@ -707,4 +687,3 @@ function M.restoreAll()
 end
 
 return M
-

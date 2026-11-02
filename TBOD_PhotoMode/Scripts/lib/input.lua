@@ -1,10 +1,7 @@
--- TBOD_PhotoMode input module
--- Input isolation: DisableInput on player pawn, FlushPressedKeys, and a
--- startup fail-safe to restore input after a mod crash.
---
--- Hub menu actions (IA_Hub_*) are bound at the LocalPlayer/Controller level,
--- NOT on the pawn's InputComponent — DisableInput blocks character actions
--- but not menus; those are caught by the camera watchdog.
+-- Input isolation: DisableInput on the player pawn, FlushPressedKeys, and a
+-- startup fail-safe for a crashed session. IA_Hub_* binds live at the
+-- LocalPlayer/Controller level — DisableInput doesn't block menus (watchdog
+-- catches those).
 
 local core = require("lib.core")
 local State = core.State
@@ -84,6 +81,22 @@ local function setDialogueWidgetsEnabled(enabled)
     end
 end
 
+-- WBP_GameHUD hosts the quickslot bar directly and inside its WidgetTree —
+-- both paths must be covered on suppress and on restore.
+local function findHudQuickslots()
+    local found = {}
+    local hud = core.findValid({"WBP_GameHUD_C", "WBP_GameHUD"})
+    if hud and hud:IsValid() then
+        local okQ, qc = pcall(function() return hud.QuickslotContainer end)
+        if okQ and qc and qc:IsValid() then table.insert(found, qc) end
+        if hud.WidgetTree and hud.WidgetTree:IsValid() then
+            local okTreeQ, treeQC = pcall(function() return hud.WidgetTree.QuickslotContainer end)
+            if okTreeQ and treeQC and treeQC:IsValid() then table.insert(found, treeQC) end
+        end
+    end
+    return found
+end
+
 local function setQuickslotContainerActive(enable)
     if not State.disabledQuickslotContainers then State.disabledQuickslotContainers = {} end
 
@@ -104,24 +117,11 @@ local function setQuickslotContainerActive(enable)
         State.disabledQuickslotContainers = {}
 
         -- Failsafe: ensure WBP_GameHUD QuickslotContainer is explicitly shown and visible
-        local hud = core.findValid({"WBP_GameHUD_C", "WBP_GameHUD"})
-        if hud and hud:IsValid() then
-            local okQ, qc = pcall(function() return hud.QuickslotContainer end)
-            if okQ and qc and qc:IsValid() then
-                pcall(function() qc:SetShown(true) end)
-                pcall(function() qc:SetVisibility(0) end)
-                pcall(function() qc:SetIsEnabled(true) end)
-                restored = restored + 1
-            end
-            if hud.WidgetTree and hud.WidgetTree:IsValid() then
-                local okTreeQ, treeQC = pcall(function() return hud.WidgetTree.QuickslotContainer end)
-                if okTreeQ and treeQC and treeQC:IsValid() then
-                    pcall(function() treeQC:SetShown(true) end)
-                    pcall(function() treeQC:SetVisibility(0) end)
-                    pcall(function() treeQC:SetIsEnabled(true) end)
-                    restored = restored + 1
-                end
-            end
+        for _, qc in ipairs(findHudQuickslots()) do
+            pcall(function() qc:SetShown(true) end)
+            pcall(function() qc:SetVisibility(0) end)
+            pcall(function() qc:SetIsEnabled(true) end)
+            restored = restored + 1
         end
 
         -- Failsafe: guarantee all Quickslot-related UserWidgets are un-collapsed
@@ -167,15 +167,7 @@ local function setQuickslotContainerActive(enable)
     local containers = {}
 
     -- 1. Direct path via WBP_GameHUD_C
-    local hud = core.findValid({"WBP_GameHUD_C", "WBP_GameHUD"})
-    if hud and hud:IsValid() then
-        local okQ, qc = pcall(function() return hud.QuickslotContainer end)
-        if okQ and qc and qc:IsValid() then table.insert(containers, qc) end
-        if hud.WidgetTree and hud.WidgetTree:IsValid() then
-            local okTreeQ, treeQC = pcall(function() return hud.WidgetTree.QuickslotContainer end)
-            if okTreeQ and treeQC and treeQC:IsValid() then table.insert(containers, treeQC) end
-        end
-    end
+    for _, qc in ipairs(findHudQuickslots()) do table.insert(containers, qc) end
 
     -- Optimization: Cache the lists if not already cached.
     -- These UI elements rarely respawn during a single Photo Mode session.
@@ -337,7 +329,7 @@ end
 -- because in Dawnwalker that swaps to BlankInputComponent and blocks input on ALL pawns,
 -- which completely kills mouse look and free cam on APhotoCameraActor (regression TIK-007).
 -- Character actions are safely isolated by pawn:DisableInput(pc) on BP_PlayerCharacter_C alone.
-local function setNativeInputBlockers(pc, block)
+local function setNativeInputBlockers(pc)
     if not (pc and pc:IsValid()) then return end
 
     -- Ensure PlayerController does NOT ignore move/look input, so Photo Mode camera
@@ -363,7 +355,7 @@ function M.isolateGameInput(enable)
             return false
         end
         pcall(function() pawn:DisableInput(pc) end)
-        setNativeInputBlockers(pc, true)
+        setNativeInputBlockers(pc)
         setQuickslotContainerActive(false)
         setQuickslotIMCActive(false)
         flushKeys(pc)
@@ -380,7 +372,7 @@ function M.isolateGameInput(enable)
         if target and target:IsValid() then
             pcall(function() target:EnableInput(pc) end)
         end
-        setNativeInputBlockers(pc, false)
+        setNativeInputBlockers(pc)
         setQuickslotContainerActive(true)
         setQuickslotIMCActive(true)
         flushKeys(pc)
@@ -429,7 +421,7 @@ function M.recoverInputOnStart()
     if not (pawn and pawn:IsValid()) then pawn = resolvePlayerPawn() end
     if not pawn or not pawn:IsValid() then return end
     pcall(function() pawn:EnableInput(pc) end)
-    setNativeInputBlockers(pc, false)
+    setNativeInputBlockers(pc)
     setQuickslotContainerActive(true)
     setQuickslotIMCActive(true)
     State.isolatedPawn = nil

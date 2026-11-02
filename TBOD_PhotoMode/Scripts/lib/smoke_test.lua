@@ -1,11 +1,8 @@
--- lib/smoke_test.lua
--- In-Engine Runtime Smoke Test Suite for TBOD_PhotoMode
--- Validates live Unreal Engine 5.5 reflection, Subsystems, EventBridge, and Statelessness.
+-- In-engine smoke tests: live UE 5.5 reflection, subsystems, EventBridge.
 
 local core = require("lib.core")
 local State = core.State
 local Subsystem = core.Subsystem
-local logMsg = core.logMsg
 
 local M = {}
 

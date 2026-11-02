@@ -1,6 +1,4 @@
--- TBOD_PhotoMode OSD module
--- Dynamic UMG OSD — build, update, navigation, toggle
-
+local core = require("lib.core")
 local core = require("lib.core")
 local State = core.State
 local Config = core.Config
@@ -86,7 +84,7 @@ if Config.enable_experimental then
     table.insert(M.OSD_ROWS, { label = "Face Cam",    fmt = function() return "[>] Face" end })
 end
 
--- Dynamic Tab definitions (Sprint 1.5.1)
+-- Dynamic Tab definitions
 M.currentTab = 1
 M.TABS = nil
 
@@ -336,7 +334,7 @@ function M.ensureOSD()
     return M.buildOSD()
 end
 
----------------------------------------------------------------------------- Letterbox (fake aspect-ratio bars)
+-- Letterbox (fake aspect-ratio bars)
 -- PhotoCameraActor has no camera component, so there is nowhere on the view
 -- path for a real constrained aspect ratio to live. Instead we draw two black
 -- bars via UMG — they frame the shot AND get baked into our window-grab
@@ -525,7 +523,7 @@ function M.setLetterbox(ratio)
     pcall(function() LETTERBOX.root:SetVisibility(VIS_HIT_TEST_INVISIBLE) end)
 end
 
----------------------------------------------------------------------------- Framing guides (overlay only)
+-- Framing guides (overlay only)
 
 local FRAMING_MODES = { "off", "thirds", "crosshair", "safe" }
 local FRAMING_LABELS = {
@@ -723,7 +721,6 @@ function M.updateOSD()
     
     local activeRows = M.getActiveRows()
     
-    -- Ensure OSD_SELECTED is within active rows
     local found = false
     for _, rowIdx in ipairs(activeRows) do
         if rowIdx == M.OSD_SELECTED then found = true; break end
@@ -1022,6 +1019,5 @@ end
 dbg("OSD: section loaded (show=%s build=%s)", tostring(M.showOSD), tostring(M.buildOSD))
 
 return M
-
 
 

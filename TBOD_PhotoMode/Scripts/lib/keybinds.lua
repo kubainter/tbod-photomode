@@ -1,6 +1,4 @@
--- TBOD_PhotoMode keybinds module
--- Key aliases, resolution, binding infrastructure
-
+local M = {}
 local core = require("lib.core")
 
 local M = {}

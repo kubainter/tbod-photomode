@@ -1,7 +1,5 @@
--- lib/eventbridge.lua
--- Wrapper around _ModCore_UE4SSLuaEventBridge (v1.0.7) for TBOD_PhotoMode
--- Connects UE 5.5 Enhanced Input events to Photo Mode actions
--- Meets Rule 8 (PM Statelessness): full unbind and target closure on cleanup.
+-- Wrapper for _ModCore_UE4SSLuaEventBridge (v1.0.7): Enhanced Input -> PM
+-- actions; Rule 8 teardown unbinds everything and closes all targets.
 
 local core = require("lib.core")
 local logMsg = core.logMsg
@@ -12,7 +10,18 @@ local M = {}
 local activeTargets = {}       -- targetHandle -> { componentPath = str, openedAt = num }
 local activeBindings = {}      -- bindHandle -> { targetHandle = num, actionPath = str, eventType = str }
 
----------------------------------------------------------------------------- Availability & diagnostics
+-- Photo Mode D-Pad binding state (locals must be declared before unbindAll —
+-- assigning them there without a local in scope would write to _G)
+local pmTargetHandle = nil
+local pmBindings = {}
+
+local function countKeys(tbl)
+    local n = 0
+    for _ in pairs(tbl) do n = n + 1 end
+    return n
+end
+
+-- Availability & diagnostics
 
 function M.isAvailable()
     if type(UE4SSLuaEventBridge) ~= "table" then
@@ -32,14 +41,7 @@ function M.getVersion()
     return "unknown"
 end
 
-function M.getCapabilities()
-    if not M.isAvailable() then return nil end
-    local ok, caps = pcall(function() return UE4SSLuaEventBridge.GetCapabilities() end)
-    if ok and caps then return caps end
-    return nil
-end
-
----------------------------------------------------------------------------- Gamepad active detection (CommonInputSubsystem)
+-- Gamepad active detection (CommonInputSubsystem)
 
 function M.getCommonInputSubsystem(pc)
     pc = pc or core.Subsystem.playerController()
@@ -73,21 +75,8 @@ function M.isGamepadActive(pc)
     return core.State.lastInputDevice == "gamepad"
 end
 
-function M.getCurrentGamepadName(pc)
-    local cis = M.getCommonInputSubsystem(pc)
-    if cis then
-        local ok, name = pcall(function()
-            local n = cis:GetCurrentGamepadName()
-            return n and n:ToString()
-        end)
-        if ok and name then return name end
-    end
-    return nil
-end
+-- Component path resolution
 
----------------------------------------------------------------------------- Component path resolution
-
--- Extracts the live object path string from a UObject or string
 function M.resolveComponentPath(componentOrActor)
     if type(componentOrActor) == "string" and #componentOrActor > 0 then
         return componentOrActor
@@ -100,7 +89,6 @@ function M.resolveComponentPath(componentOrActor)
         return nil, "target object is invalid or not a UObject"
     end
 
-    -- Check if componentOrActor itself is already an EnhancedInputComponent
     local targetComp = componentOrActor
     local isComp = false
     local okComp, compCheck = pcall(function()
@@ -111,12 +99,10 @@ function M.resolveComponentPath(componentOrActor)
     end
 
     if not isComp then
-        -- Check if it's APhotoCameraActor (has EnhancedInput property)
         local okEI, ei = pcall(function() return componentOrActor.EnhancedInput end)
         if okEI and ei and ei:IsValid() then
             targetComp = ei
         else
-            -- Check if it's APlayerController (has InputComponent or OnlyMovementInputComponent)
             local okIC, ic = pcall(function() return componentOrActor.InputComponent end)
             if okIC and ic and ic:IsValid() then
                 targetComp = ic
@@ -129,19 +115,16 @@ function M.resolveComponentPath(componentOrActor)
         end
     end
 
-    -- Verify resolved targetComp
     local okV2, valid2 = pcall(function() return targetComp and targetComp:IsValid() end)
     if not (okV2 and valid2) then
         return nil, "could not locate valid EnhancedInputComponent on actor"
     end
 
-    -- Get exact object path via GetPathName
     local okPath, path = pcall(function() return targetComp:GetPathName() end)
     if okPath and type(path) == "string" and #path > 0 then
         return path
     end
 
-    -- Fallback to GetFullName() without class prefix
     local okFull, full = pcall(function() return targetComp:GetFullName() end)
     if okFull and type(full) == "string" and #full > 0 then
         local p = full:match("^%S+%s+(.+)$")
@@ -152,7 +135,7 @@ function M.resolveComponentPath(componentOrActor)
     return nil, "failed to obtain path from EnhancedInputComponent"
 end
 
----------------------------------------------------------------------------- Active component discovery
+-- Active component discovery
 
 function M.findActiveInputComponent(photoActor, pc)
     if photoActor then
@@ -182,9 +165,8 @@ function M.findActiveInputComponent(photoActor, pc)
     return nil
 end
 
----------------------------------------------------------------------------- Lifecycle & Binding wrappers
+-- Lifecycle & Binding wrappers
 
--- OpenComponent: returns targetHandle (positive integer) or nil, err
 function M.openComponent(componentOrActor)
     local avail, why = M.isAvailable()
     if not avail then return nil, why end
@@ -210,7 +192,6 @@ function M.openComponent(componentOrActor)
     return targetHandle
 end
 
--- Bind: returns bindHandle or nil, err
 function M.bind(targetHandle, actionPath, eventType, callback)
     local avail, why = M.isAvailable()
     if not avail then return nil, why end
@@ -254,7 +235,6 @@ function M.bind(targetHandle, actionPath, eventType, callback)
     return bindHandle
 end
 
--- Unbind: unbinds a specific action binding
 function M.unbind(bindHandle)
     if not bindHandle or type(bindHandle) ~= "number" then return false, "invalid bindHandle" end
     local info = activeBindings[bindHandle]
@@ -268,12 +248,10 @@ function M.unbind(bindHandle)
     return true
 end
 
--- CloseComponent: closes a target handle and unbinds its actions
 function M.closeComponent(targetHandle)
     if not targetHandle or type(targetHandle) ~= "number" then return false, "invalid targetHandle" end
     if not activeTargets[targetHandle] then return false, "targetHandle not tracked" end
 
-    -- Unbind all actions registered on this target
     local toRemove = {}
     for bh, info in pairs(activeBindings) do
         if info.targetHandle == targetHandle then
@@ -301,20 +279,18 @@ function M.unbindAll()
     pmBindings = {}
 
     local avail = M.isAvailable()
-    local targetCount = M.count(activeTargets)
-    local bindCount = M.count(activeBindings)
+    local targetCount = countKeys(activeTargets)
+    local bindCount = countKeys(activeBindings)
     if targetCount > 0 or bindCount > 0 then
         core.dbg("EventBridge: Cleaning up %d active target(s) and %d binding(s)", targetCount, bindCount)
     end
 
-    -- 1. Unbind individual tracked bindings
     local bindingHandles = {}
     for bh in pairs(activeBindings) do bindingHandles[#bindingHandles + 1] = bh end
     for _, bh in ipairs(bindingHandles) do
         M.unbind(bh)
     end
 
-    -- 2. Close individual tracked targets
     local targets = {}
     for th in pairs(activeTargets) do targets[#targets + 1] = th end
     for _, th in ipairs(targets) do
@@ -323,7 +299,6 @@ function M.unbindAll()
         end
     end
 
-    -- 3. Native bulk unbind if available
     if avail and type(UE4SSLuaEventBridge.UnbindAll) == "function" then
         pcall(function() UE4SSLuaEventBridge.UnbindAll() end)
     end
@@ -335,10 +310,7 @@ end
 
 M.cleanup = M.unbindAll
 
----------------------------------------------------------------------------- Photo Mode D-Pad bindings (Step 3)
-
-local pmTargetHandle = nil
-local pmBindings = {}
+-- Photo Mode D-Pad bindings (Step 3)
 
 local QUICKSLOT_ACTIONS = {
     Top    = "/Game/_Dawnwalker/Player/Input/Actions/Quickslots/IA_Quickslot_Top.IA_Quickslot_Top",
@@ -346,10 +318,6 @@ local QUICKSLOT_ACTIONS = {
     Left   = "/Game/_Dawnwalker/Player/Input/Actions/Quickslots/IA_Quickslot_Left.IA_Quickslot_Left",
     Right  = "/Game/_Dawnwalker/Player/Input/Actions/Quickslots/IA_Quickslot_Right.IA_Quickslot_Right",
 }
-
-function M.isPhotoModeBound()
-    return pmTargetHandle ~= nil and #pmBindings > 0
-end
 
 function M.teardownPhotoModeBindings()
     if pmTargetHandle then
@@ -395,7 +363,6 @@ function M.setupPhotoModeBindings(photoActor, pc)
     local osd = require("lib.osd")
     local State = core.State
 
-    -- Bind D-Pad Top -> OSD Up (Select -1)
     local bTop = M.bind(target, QUICKSLOT_ACTIONS.Top, "Triggered", function(event)
         core.dispatch(function()
             if not State.photoModeActive then return end
@@ -405,7 +372,6 @@ function M.setupPhotoModeBindings(photoActor, pc)
     end)
     if bTop then pmBindings[#pmBindings + 1] = bTop end
 
-    -- Bind D-Pad Bottom -> OSD Down (Select +1)
     local bBottom = M.bind(target, QUICKSLOT_ACTIONS.Bottom, "Triggered", function(event)
         core.dispatch(function()
             if not State.photoModeActive then return end
@@ -415,7 +381,6 @@ function M.setupPhotoModeBindings(photoActor, pc)
     end)
     if bBottom then pmBindings[#pmBindings + 1] = bBottom end
 
-    -- Bind D-Pad Left -> OSD Left (Adjust -1)
     local bLeft = M.bind(target, QUICKSLOT_ACTIONS.Left, "Triggered", function(event)
         core.dispatch(function()
             if not State.photoModeActive then return end
@@ -425,7 +390,6 @@ function M.setupPhotoModeBindings(photoActor, pc)
     end)
     if bLeft then pmBindings[#pmBindings + 1] = bLeft end
 
-    -- Bind D-Pad Right -> OSD Right (Adjust +1)
     local bRight = M.bind(target, QUICKSLOT_ACTIONS.Right, "Triggered", function(event)
         core.dispatch(function()
             if not State.photoModeActive then return end
@@ -438,16 +402,6 @@ function M.setupPhotoModeBindings(photoActor, pc)
     logMsg("EventBridge: D-Pad OSD bindings registered on target %d (%d bindings)",
         target, #pmBindings)
     return true
-end
-
-function M.count(tbl)
-    local n = 0
-    for _ in pairs(tbl) do n = n + 1 end
-    return n
-end
-
-function M.getActiveCounts()
-    return M.count(activeTargets), M.count(activeBindings)
 end
 
 return M
